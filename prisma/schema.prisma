@@ -1,0 +1,822 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  STATE_ADMIN
+  LMO
+  GATC_ADMIN
+  GATC_OFFICER
+  BUSINESS_USER
+  INSPECTOR
+  PUBLIC
+  AUDITOR
+}
+
+enum AccountStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING
+}
+
+enum ApplicationStatus {
+  DRAFT
+  SUBMITTED
+  DOCUMENT_REVIEW
+  APPROVED
+  RETURNED
+  REJECTED
+  SCHEDULED
+  ASSIGNED
+  FIELD_VERIFICATION
+  INSPECTION_COMPLETED
+  PASS
+  FAIL
+  STAMPING
+  CERTIFICATE_GENERATED
+  CERTIFICATE_ISSUED
+  ACTIVE
+  CANCELLED
+  EXPIRED
+  SUSPENDED
+  REVOKED
+}
+
+enum CertificateStatus {
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+  REVOKED
+  CANCELLED
+}
+
+enum VerificationType {
+  INITIAL_VERIFICATION
+  RE_VERIFICATION
+  OTHER_APPLICABLE
+}
+
+enum RuleStatus {
+  DRAFT
+  UNDER_REVIEW
+  APPROVED
+  ACTIVE
+  RETIRED
+  CONFIGURATION_REQUIRED
+}
+
+enum ChecklistResult {
+  PASS
+  FAIL
+  NA
+  PENDING
+}
+
+enum DocumentStatus {
+  UPLOADED
+  VERIFIED
+  REJECTED
+  SUPERSEDED
+}
+
+enum PaymentStatus {
+  NOT_REQUIRED
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+model State {
+  id        String     @id @default(uuid())
+  code      String     @unique
+  name      String
+  nameHi    String?
+  districts District[]
+  users     User[]
+  instruments Instrument[]
+  organizations Organization[]
+  gatcProfiles GATCProfile[]
+  stateRuleConfigs StateRuleConfiguration[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model District {
+  id        String   @id @default(uuid())
+  name      String
+  nameHi    String?
+  stateId   String
+  state     State    @relation(fields: [stateId], references: [id])
+  instruments Instrument[]
+  organizations Organization[]
+  gatcProfiles GATCProfile[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([stateId, name])
+  @@index([stateId])
+}
+
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  type        String   @default("BUSINESS")
+  address     String?
+  stateId     String?
+  state       State?   @relation(fields: [stateId], references: [id])
+  districtId  String?
+  district    District? @relation(fields: [districtId], references: [id])
+  gstin       String?
+  isDemo      Boolean  @default(false)
+  users       User[]
+  instruments Instrument[]
+  applications Application[]
+  licenses    License[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+}
+
+model User {
+  id             String        @id @default(uuid())
+  email          String        @unique
+  passwordHash   String
+  name           String
+  mobile         String?
+  role           Role
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  stateId        String?
+  state          State?        @relation(fields: [stateId], references: [id])
+  status         AccountStatus @default(ACTIVE)
+  isDemo         Boolean       @default(false)
+  locale         String        @default("en")
+  preferences    Json?
+  lastLoginAt    DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  deletedAt      DateTime?
+
+  applicationsCreated Application[] @relation("ApplicationCreator")
+  statusChanges       ApplicationStatusHistory[]
+  assignments         VerificationAssignment[] @relation("AssignedOfficer")
+  inspections         Inspection[]
+  auditLogs           AuditLog[]
+  notifications       Notification[]
+  stampingRecords     StampingRecord[]
+  gpsRecords          GpsRecord[]
+
+  @@index([role])
+  @@index([organizationId])
+  @@index([stateId, role])
+}
+
+model License {
+  id               String    @id @default(uuid())
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id])
+  licenseType      String
+  licenseNumber    String?
+  authority        String?
+  status           String    @default("CONFIGURATION_REQUIRED")
+  validFrom        DateTime?
+  validUntil       DateTime?
+  sourceDocument   String?
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([organizationId])
+}
+
+model InstrumentType {
+  id                          String   @id @default(uuid())
+  code                        String   @unique
+  name                        String
+  nameHi                      String?
+  category                    String?
+  technicalParameters         Json?
+  verificationParameters      Json?
+  testParameters              Json?
+  requiredDocuments           Json?
+  requiredPhotos              Json?
+  validityRuleId              String?
+  eligibleVerificationAuthorities Json?
+  isActive                    Boolean  @default(true)
+  instruments                 Instrument[]
+  instrumentModels            InstrumentModel[]
+  legalRules                  LegalRule[]
+  gatcAuthorizations          GATCInstrumentAuthorization[]
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+}
+
+model InstrumentModel {
+  id               String         @id @default(uuid())
+  manufacturer     String
+  modelName        String
+  instrumentTypeId String
+  instrumentType   InstrumentType @relation(fields: [instrumentTypeId], references: [id])
+  approvalNumber   String?
+  instruments      Instrument[]
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([instrumentTypeId])
+}
+
+model Instrument {
+  id                  String          @id @default(uuid())
+  instrumentCode      String          @unique
+  instrumentTypeId    String
+  instrumentType      InstrumentType  @relation(fields: [instrumentTypeId], references: [id])
+  modelId             String?
+  model               InstrumentModel? @relation(fields: [modelId], references: [id])
+  manufacturer        String
+  modelName           String
+  serialNumber        String
+  capacity            String?
+  accuracy            String?
+  unit                String?
+  yearOfManufacture   Int?
+  dateOfInstallation  DateTime?
+  organizationId      String
+  organization        Organization    @relation(fields: [organizationId], references: [id])
+  locationLabel       String?
+  address             String?
+  stateId             String?
+  state               State?          @relation(fields: [stateId], references: [id])
+  districtId          String?
+  district            District?       @relation(fields: [districtId], references: [id])
+  latitude            Float?
+  longitude           Float?
+  currentStatus       String          @default("REGISTERED")
+  verificationStatus  String          @default("PENDING")
+  lastVerificationAt  DateTime?
+  nextDueDate         DateTime?
+  certificateNumber   String?
+  isDemo              Boolean         @default(false)
+  applications        Application[]
+  certificates        Certificate[]
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  deletedAt           DateTime?
+
+  @@unique([serialNumber, manufacturer])
+  @@index([organizationId])
+  @@index([instrumentTypeId])
+  @@index([nextDueDate])
+  @@index([stateId])
+  @@index([createdAt])
+}
+
+model LegalSource {
+  id            String   @id @default(uuid())
+  title         String
+  documentUrl   String?
+  publisher     String   @default("Department of Consumer Affairs")
+  publishedAt   DateTime?
+  notes         String?
+  rules         LegalRule[]
+  amendments    RuleAmendment[]
+  createdAt     DateTime @default(now())
+}
+
+model RuleAmendment {
+  id            String   @id @default(uuid())
+  title         String
+  notification  String?
+  effectiveFrom DateTime?
+  sourceId      String?
+  source        LegalSource? @relation(fields: [sourceId], references: [id])
+  notes         String?
+  createdAt     DateTime @default(now())
+}
+
+model LegalRule {
+  id                   String      @id @default(uuid())
+  ruleKey              String
+  actName              String
+  ruleName             String
+  ruleNumber           String?
+  sectionNumber        String?
+  scheduleReference    String?
+  instrumentTypeId     String?
+  instrumentType       InstrumentType? @relation(fields: [instrumentTypeId], references: [id])
+  stateCode            String?
+  requirement          String
+  parameter            String
+  value                String?
+  unit                 String?
+  valueStatus          String      @default("SET") // SET | CONFIGURATION_REQUIRED
+  sourceNotification   String?
+  sourceDocument       String?
+  amendmentReference   String?
+  sourceId             String?
+  source               LegalSource? @relation(fields: [sourceId], references: [id])
+  status               RuleStatus  @default(DRAFT)
+  versions             LegalRuleVersion[]
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  @@index([ruleKey])
+  @@index([parameter, status])
+}
+
+model LegalRuleVersion {
+  id              String    @id @default(uuid())
+  legalRuleId     String
+  legalRule       LegalRule @relation(fields: [legalRuleId], references: [id])
+  versionNumber   Int
+  value           String?
+  valueStatus     String    @default("SET")
+  effectiveFrom   DateTime
+  effectiveUntil  DateTime?
+  changeReason    String?
+  approvedById    String?
+  snapshot        Json?
+  instrumentsPinned Application[] @relation("RuleVersionUsed")
+  certificates    Certificate[]
+  createdAt       DateTime  @default(now())
+
+  @@unique([legalRuleId, versionNumber])
+  @@index([effectiveFrom, effectiveUntil])
+}
+
+model StateRuleConfiguration {
+  id            String   @id @default(uuid())
+  stateId       String
+  state         State    @relation(fields: [stateId], references: [id])
+  ruleKey       String
+  effectiveFrom DateTime
+  effectiveUntil DateTime?
+  authority     String?
+  feesJson      Json?
+  workflowJson  Json?
+  instrumentRules Json?
+  notificationRules Json?
+  notes         String?  @default("CONFIGURATION REQUIRED — load from State Enforcement Rules")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([stateId, ruleKey])
+}
+
+model Application {
+  id                String            @id @default(uuid())
+  applicationNumber String            @unique
+  organizationId    String
+  organization      Organization      @relation(fields: [organizationId], references: [id])
+  instrumentId      String
+  instrument        Instrument        @relation(fields: [instrumentId], references: [id])
+  createdById       String
+  createdBy         User              @relation("ApplicationCreator", fields: [createdById], references: [id])
+  verificationType  VerificationType
+  status            ApplicationStatus @default(DRAFT)
+  preferredDate     DateTime?
+  preferredSlot     String?
+  remarks           String?
+  declarationAccepted Boolean         @default(false)
+  ruleVersionId     String?
+  ruleVersion       LegalRuleVersion? @relation("RuleVersionUsed", fields: [ruleVersionId], references: [id])
+  feeRequired       Boolean           @default(false)
+  paymentStatus     PaymentStatus     @default(NOT_REQUIRED)
+  isDemo            Boolean           @default(false)
+  documents         ApplicationDocument[]
+  statusHistory     ApplicationStatusHistory[]
+  assignments       VerificationAssignment[]
+  schedules         VerificationSchedule[]
+  inspections       Inspection[]
+  certificates      Certificate[]
+  payments          Payment[]
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@index([organizationId, status])
+  @@index([status, updatedAt])
+  @@index([instrumentId])
+  @@index([createdAt])
+}
+
+model ApplicationDocument {
+  id            String         @id @default(uuid())
+  applicationId String
+  application   Application    @relation(fields: [applicationId], references: [id])
+  documentType  String
+  fileName      String
+  mimeType      String
+  sizeBytes     Int
+  storageKey    String
+  checksum      String
+  version       Int            @default(1)
+  status        DocumentStatus @default(UPLOADED)
+  uploadedById  String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([applicationId])
+}
+
+model ApplicationStatusHistory {
+  id            String            @id @default(uuid())
+  applicationId String
+  application   Application       @relation(fields: [applicationId], references: [id])
+  previousStatus ApplicationStatus?
+  newStatus     ApplicationStatus
+  changedById   String?
+  changedBy     User?             @relation(fields: [changedById], references: [id])
+  reason        String?
+  remarks       String?
+  changedAt     DateTime          @default(now())
+
+  @@index([applicationId, changedAt])
+}
+
+model GATCProfile {
+  id                    String   @id @default(uuid())
+  name                  String
+  approvalNumber        String   @unique
+  address               String?
+  stateId               String?
+  state                 State?   @relation(fields: [stateId], references: [id])
+  districtId            String?
+  district              District? @relation(fields: [districtId], references: [id])
+  approvalStatus        String   @default("APPROVED")
+  approvalStart         DateTime?
+  approvalEnd           DateTime?
+  contactEmail          String?
+  contactPhone          String?
+  latitude              Float?
+  longitude             Float?
+  isDemo                Boolean  @default(false)
+  authorizations        GATCInstrumentAuthorization[]
+  assignments           VerificationAssignment[]
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model GATCInstrumentAuthorization {
+  id               String         @id @default(uuid())
+  gatcId           String
+  gatc             GATCProfile    @relation(fields: [gatcId], references: [id])
+  instrumentTypeId String
+  instrumentType   InstrumentType @relation(fields: [instrumentTypeId], references: [id])
+  validFrom        DateTime?
+  validUntil       DateTime?
+  sourceNote       String?        @default("CONFIGURATION REQUIRED — load from GATC First Schedule / amendment")
+
+  @@unique([gatcId, instrumentTypeId])
+}
+
+model VerificationAssignment {
+  id            String       @id @default(uuid())
+  applicationId String
+  application   Application  @relation(fields: [applicationId], references: [id])
+  officerId     String?
+  officer       User?        @relation("AssignedOfficer", fields: [officerId], references: [id])
+  gatcId        String?
+  gatc          GATCProfile? @relation(fields: [gatcId], references: [id])
+  authorityType String       @default("LMO") // LMO | GATC
+  status        String       @default("ASSIGNED")
+  assignedAt    DateTime     @default(now())
+  notes         String?
+  schedules     VerificationSchedule[]
+
+  @@index([officerId])
+  @@index([applicationId])
+  @@index([gatcId])
+}
+
+model VerificationSchedule {
+  id            String   @id @default(uuid())
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id])
+  assignmentId  String?
+  assignment    VerificationAssignment? @relation(fields: [assignmentId], references: [id])
+  scheduledDate DateTime
+  timeSlot      String?
+  status        String   @default("SCHEDULED")
+  conflictFlags Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([scheduledDate])
+  @@index([applicationId])
+  @@index([assignmentId])
+}
+
+model Inspection {
+  id              String   @id @default(uuid())
+  applicationId   String
+  application     Application @relation(fields: [applicationId], references: [id])
+  officerId       String?
+  officer         User?    @relation(fields: [officerId], references: [id])
+  startedAt       DateTime?
+  completedAt     DateTime?
+  overallResult   ChecklistResult @default(PENDING)
+  observations    String?
+  serialConfirmed Boolean  @default(false)
+  offlineSynced   Boolean  @default(true)
+  checklists      InspectionChecklist[]
+  tests           InspectionTest[]
+  measurements    InspectionMeasurement[]
+  photos          InspectionPhoto[]
+  gpsRecords      GpsRecord[]
+  stamping        StampingRecord?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([applicationId])
+  @@index([officerId])
+}
+
+model InspectionChecklist {
+  id           String          @id @default(uuid())
+  inspectionId String
+  inspection   Inspection      @relation(fields: [inspectionId], references: [id])
+  itemKey      String
+  itemLabel    String
+  result       ChecklistResult @default(PENDING)
+  remarks      String?
+  ruleRef      String?
+
+  @@index([inspectionId])
+}
+
+model InspectionTest {
+  id               String          @id @default(uuid())
+  inspectionId     String
+  inspection       Inspection      @relation(fields: [inspectionId], references: [id])
+  testName         String
+  requiredStandard String?
+  expectedValue    String?
+  observedValue    String?
+  unit             String?
+  permissibleError String?         @default("CONFIGURATION_REQUIRED")
+  calculatedError  String?
+  result           ChecklistResult @default(PENDING)
+  ruleVersionRef   String?
+
+  @@index([inspectionId])
+}
+
+model InspectionMeasurement {
+  id              String   @id @default(uuid())
+  inspectionId    String
+  inspection      Inspection @relation(fields: [inspectionId], references: [id])
+  label           String
+  observedValue   Float?
+  referenceValue  Float?
+  error           Float?
+  permissibleError Float?
+  unit            String?
+  result          ChecklistResult @default(PENDING)
+  calculationNote String?
+}
+
+model InspectionPhoto {
+  id           String   @id @default(uuid())
+  inspectionId String
+  inspection   Inspection @relation(fields: [inspectionId], references: [id])
+  category     String
+  storageKey   String
+  checksum     String
+  latitude     Float?
+  longitude    Float?
+  capturedAt   DateTime @default(now())
+  capturedById String?
+
+  @@index([inspectionId])
+}
+
+model GpsRecord {
+  id           String   @id @default(uuid())
+  inspectionId String?
+  inspection   Inspection? @relation(fields: [inspectionId], references: [id])
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id])
+  latitude     Float
+  longitude    Float
+  accuracy     Float?
+  purpose      String
+  capturedAt   DateTime @default(now())
+
+  @@index([inspectionId])
+}
+
+model StampingRecord {
+  id              String   @id @default(uuid())
+  inspectionId    String   @unique
+  inspection      Inspection @relation(fields: [inspectionId], references: [id])
+  stampIdentifier String?
+  stampType       String?
+  stampDate       DateTime @default(now())
+  authority       String?
+  officerId       String?
+  officer         User?    @relation(fields: [officerId], references: [id])
+  remarks         String?
+  evidenceKey     String?
+  formatNote      String?  @default("Stamp identifier format: CONFIGURATION REQUIRED")
+  createdAt       DateTime @default(now())
+}
+
+model Certificate {
+  id                String            @id @default(uuid())
+  certificateNumber String            @unique
+  applicationId     String
+  application       Application       @relation(fields: [applicationId], references: [id])
+  instrumentId      String
+  instrument        Instrument        @relation(fields: [instrumentId], references: [id])
+  status            CertificateStatus @default(ACTIVE)
+  verificationDate  DateTime
+  validUntil        DateTime?
+  result            String
+  issuingAuthority  String?
+  officerName       String?
+  ruleVersionId     String?
+  ruleVersion       LegalRuleVersion? @relation(fields: [ruleVersionId], references: [id])
+  validityCalcMethod String?
+  pdfStorageKey     String?
+  contentHash       String?
+  signatureMeta     Json?
+  isDemo            Boolean           @default(false)
+  publicFields      Json?
+  versions          CertificateVersion[]
+  revocations       CertificateRevocation[]
+  qrToken           QrToken?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@index([status, validUntil])
+  @@index([validUntil])
+  @@index([applicationId])
+  @@index([instrumentId])
+  @@index([verificationDate])
+}
+
+model CertificateVersion {
+  id            String   @id @default(uuid())
+  certificateId String
+  certificate   Certificate @relation(fields: [certificateId], references: [id])
+  version       Int
+  pdfStorageKey String?
+  snapshot      Json?
+  createdAt     DateTime @default(now())
+}
+
+model CertificateRevocation {
+  id            String   @id @default(uuid())
+  certificateId String
+  certificate   Certificate @relation(fields: [certificateId], references: [id])
+  reason        String
+  revokedById   String?
+  revokedAt     DateTime @default(now())
+}
+
+model QrToken {
+  id              String   @id @default(uuid())
+  token           String   @unique
+  certificateId   String   @unique
+  certificate     Certificate @relation(fields: [certificateId], references: [id])
+  createdAt       DateTime @default(now())
+  expiresAt       DateTime?
+  publicVerifications PublicVerification[]
+}
+
+model PublicVerification {
+  id          String   @id @default(uuid())
+  qrTokenId   String
+  qrToken     QrToken  @relation(fields: [qrTokenId], references: [id])
+  result      String
+  ipHash      String?
+  userAgent   String?
+  verifiedAt  DateTime @default(now())
+
+  @@index([qrTokenId])
+  @@index([verifiedAt])
+}
+
+model NotificationTemplate {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  channel   String
+  subjectEn String?
+  subjectHi String?
+  bodyEn    String
+  bodyHi    String?
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  type      String
+  title     String
+  body      String
+  channel   String   @default("IN_APP")
+  readAt    DateTime?
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+}
+
+model FeeRule {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  description String
+  amountPaise Int?
+  currency    String   @default("INR")
+  valueStatus String   @default("CONFIGURATION_REQUIRED")
+  stateCode   String?
+  sourceRef   String?
+  createdAt   DateTime @default(now())
+}
+
+model Payment {
+  id            String        @id @default(uuid())
+  applicationId String
+  application   Application   @relation(fields: [applicationId], references: [id])
+  amountPaise   Int?
+  status        PaymentStatus @default(PENDING)
+  provider      String        @default("UNCONFIGURED")
+  providerRef   String?
+  transactions  PaymentTransaction[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model PaymentTransaction {
+  id        String   @id @default(uuid())
+  paymentId String
+  payment   Payment  @relation(fields: [paymentId], references: [id])
+  status    String
+  raw       Json?
+  createdAt DateTime @default(now())
+}
+
+model Complaint {
+  id          String   @id @default(uuid())
+  subject     String
+  description String
+  stateCode   String?
+  status      String   @default("OPEN")
+  createdAt   DateTime @default(now())
+  actions     EnforcementAction[]
+}
+
+model EnforcementAction {
+  id          String   @id @default(uuid())
+  complaintId String?
+  complaint   Complaint? @relation(fields: [complaintId], references: [id])
+  actionType  String
+  notes       String?
+  penaltyNote String?  @default("Penalty amounts: CONFIGURATION REQUIRED from applicable law")
+  createdAt   DateTime @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id])
+  action     String
+  entity     String
+  entityId   String?
+  before     Json?
+  after      Json?
+  reason     String?
+  ip         String?
+  userAgent  String?
+  requestId  String?
+  createdAt  DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([actorId])
+  @@index([createdAt])
+  @@index([action])
+}
+
+model SystemSetting {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+model Location {
+  id        String   @id @default(uuid())
+  label     String
+  latitude  Float
+  longitude Float
+  meta      Json?
+  createdAt DateTime @default(now())
+}

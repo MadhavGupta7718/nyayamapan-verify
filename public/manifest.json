@@ -1,0 +1,17 @@
+{
+  "name": "NyayaMapan Field",
+  "short_name": "NyayaMapan",
+  "description": "Legal Metrology field verification PWA (demonstration)",
+  "start_url": "/en/field",
+  "display": "standalone",
+  "background_color": "#0b1c2e",
+  "theme_color": "#243b53",
+  "lang": "en",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}

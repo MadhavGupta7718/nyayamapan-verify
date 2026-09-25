@@ -1,0 +1,128 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --radius: 0.625rem;
+  --ring: 74 105 177;
+  color-scheme: light;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-surface-subtle text-body text-fg antialiased;
+    font-feature-settings: "kern" on, "liga" on;
+  }
+  :focus-visible {
+    outline: 2px solid rgb(var(--ring));
+    outline-offset: 2px;
+  }
+  ::selection {
+    @apply bg-brand-100 text-brand-900;
+  }
+  [hidden] {
+    display: none !important;
+  }
+  /* Implicit grid tracks default to `auto`, which grows to min-content and lets
+     scrollable children (tables, step rails) widen the page on mobile. */
+  .grid {
+    grid-auto-columns: minmax(0, 1fr);
+  }
+}
+
+@layer components {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  .skeleton {
+    @apply rounded-md bg-ink-100;
+    background-image: linear-gradient(90deg, rgba(255, 255, 255, 0) 0, rgba(255, 255, 255, 0.65) 50%, rgba(255, 255, 255, 0) 100%);
+    background-size: 400px 100%;
+    background-repeat: no-repeat;
+    animation: shimmer 1.4s linear infinite;
+  }
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: theme("colors.ink.300") transparent;
+  }
+  .field-control {
+    @apply block w-full rounded-md border border-line-strong bg-surface px-3 text-body-sm text-fg shadow-xs transition-[border-color,box-shadow] duration-150 placeholder:text-fg-faint hover:border-ink-400 focus:border-brand-500 focus:shadow-focus focus:outline-none disabled:cursor-not-allowed disabled:bg-surface-subtle disabled:text-fg-subtle aria-[invalid=true]:border-danger-500;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .text-pretty {
+    text-wrap: pretty;
+  }
+  .perspective {
+    perspective: 1200px;
+  }
+  .preserve-3d {
+    transform-style: preserve-3d;
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+  body {
+    background: #fff !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-area {
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 !important;
+  }
+}
+
+/* Leaflet map container polish */
+.leaflet-container {
+  font: inherit;
+  background: theme("colors.ink.100");
+}
+.map-pin {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 9999px 9999px 9999px 0;
+  transform: rotate(-45deg);
+  background: theme("colors.brand.700");
+  border: 2px solid #fff;
+  box-shadow: 0 4px 10px rgba(17, 26, 51, 0.35);
+}
+.map-pin > span {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: #fff;
+}
+.map-pin[data-tone="warning"] { background: theme("colors.warning.600"); }
+.map-pin[data-tone="success"] { background: theme("colors.success.600"); }
+.map-pin[data-tone="danger"] { background: theme("colors.danger.600"); }
