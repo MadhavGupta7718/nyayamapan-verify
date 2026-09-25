@@ -21,7 +21,8 @@ import {
 } from "lucide-react";
 import { Link, useRouter } from "@/i18n/routing";
 import { api, ApiError, errorMessage } from "@/lib/api-client";
-import { EVIDENCE_REASON_MIN, missingEvidence } from "@/lib/evidence";
+import { missingPhotos } from "@/lib/evidence";
+import { checkGeofence, GEOFENCE_METERS } from "@/lib/geo";
 import { enqueue, flushQueue, listQueue } from "@/lib/offline-queue";
 import { cn, formatDate, formatDateTime } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -31,6 +32,8 @@ import { ConfirmDialog } from "@/components/ui/modal";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState, InlineAlert } from "@/components/ui/states";
 import { FileUploader } from "@/components/ui/file-uploader";
+import { PhotoGallery } from "./photo-gallery";
+import { DismissDialog } from "./dismiss-dialog";
 
 type ChecklistItem = { id: string; label: string; result: string; remarks: string; ruleRef: string | null };
 type TestRow = { id: string; testName: string; expectedValue: string | null; observedValue: string | null; unit: string | null; result: string; permissibleError: string | null; calculatedError: string | null };
@@ -51,7 +54,7 @@ export type FieldData = {
     observations: string | null;
     checklist: ChecklistItem[];
     tests: TestRow[];
-    photos: { id: string; category: string; capturedAt: string }[];
+    photos: { id: string; category: string; capturedAt: string; storageKey: string }[];
     arrival: { accuracy: number | null; capturedAt: string; lat: number; lng: number } | null;
     stamp: { id: string | null; date: string } | null;
   } | null;
@@ -71,12 +74,14 @@ const ICONS: Record<StepKey, React.ElementType> = {
   certificate: Award,
 };
 
-function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
-  const R = 6371e3;
-  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
-  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
-  const s = Math.sin(dLat / 2) ** 2 + Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(s));
+/** Card footer that stacks full-width actions on phones so none are clipped beside the field navigation. */
+function StepFooter({ className, ...props }: React.ComponentProps<typeof CardFooter>) {
+  return (
+    <CardFooter
+      className={cn("flex-col-reverse items-stretch sm:flex-row sm:items-center [&>a]:w-full [&>button]:w-full sm:[&>a]:w-auto sm:[&>button]:w-auto", className)}
+      {...props}
+    />
+  );
 }
 
 function getPosition(): Promise<GeolocationPosition> {
@@ -150,8 +155,10 @@ export function FieldVerification({ data, locale }: { data: FieldData; locale: s
   const [busy, setBusy] = React.useState<string | null>(null);
 
   const photoDone = (c: string) => photos.some((p) => p.category === c);
+  const geofence = checkGeofence({ lat: data.instrument.lat, lng: data.instrument.lng }, arrival);
+  const siteMissing = !geofence.ok && geofence.code === "SITE_LOCATION_MISSING";
   const progress: Record<StepKey, boolean> = {
-    arrival: !!arrival,
+    arrival: geofence.ok,
     identity: serialConfirmed,
     photos: data.requiredPhotos.every(photoDone),
     checklist: checklist.length > 0 && checklist.every((c) => c.result !== "PENDING"),
@@ -171,7 +178,7 @@ export function FieldVerification({ data, locale }: { data: FieldData; locale: s
   const stepIndex = STEPS.indexOf(step);
   const canVisit = (s: StepKey) => {
     const i = STEPS.indexOf(s);
-    if (stage === "inspection") return i <= 5;
+    if (stage === "inspection") return i === 0 || (geofence.ok && i <= 5);
     if (stage === "stamping") return i === 6;
     if (stage === "certificate") return i === 7;
     return stage === "done" && i === 7;
@@ -222,7 +229,9 @@ export function FieldVerification({ data, locale }: { data: FieldData; locale: s
         true
       );
       setArrival(rec);
-      toast.success(t("gpsCaptured", { accuracy: Math.round(rec.accuracy) }));
+      const check = checkGeofence({ lat: data.instrument.lat, lng: data.instrument.lng }, rec);
+      if (!check.ok && check.code === "OUTSIDE_GEOFENCE") toast.error(t("arrival.outsideToast", { m: check.distance, limit: GEOFENCE_METERS }));
+      else toast.success(t("gpsCaptured", { accuracy: Math.round(rec.accuracy) }));
     } catch (e) {
       if (e instanceof GeolocationPositionError || (e instanceof Error && e.message === "unavailable")) toast.error(t("gpsDenied"));
       else toast.error(errorMessage(e, te));
@@ -241,8 +250,6 @@ export function FieldVerification({ data, locale }: { data: FieldData; locale: s
       true
     ).catch((e) => toast.error(errorMessage(e, te)));
   }
-
-  const distance = arrival && data.instrument.lat != null ? distanceMeters(arrival, { lat: data.instrument.lat, lng: data.instrument.lng! }) : null;
 
   // ------------------------------------------------------------- stages without a step flow
   if (stage === "waiting") {
@@ -339,15 +346,25 @@ export function FieldVerification({ data, locale }: { data: FieldData; locale: s
               <CardHeader icon={<MapPin />} title={t("arrival.title")} description={t("arrival.desc")} />
               <CardBody className="space-y-4">
                 <SiteDetails data={data} locale={locale} />
-                {arrival ? (
-                  <InlineAlert tone={distance != null && distance > 500 ? "warning" : "success"} icon={<Crosshair />} title={t("arrival.captured", { time: formatDateTime(arrival.capturedAt, locale) })}>
-                    {t("arrival.accuracy", { m: Math.round(arrival.accuracy ?? 0) })}
-                    {distance != null ? ` · ${t("arrival.distance", { m: Math.round(distance) })}` : ""}
-                    {distance != null && distance > 500 ? <p className="mt-1">{t("arrival.far")}</p> : null}
+                {siteMissing ? (
+                  <InlineAlert tone="warning" icon={<Crosshair />} title={t("arrival.noSiteTitle")}>
+                    {t("arrival.noSite")}
                   </InlineAlert>
-                ) : null}
+                ) : arrival ? (
+                  <InlineAlert
+                    tone={geofence.ok ? "success" : "danger"}
+                    icon={<Crosshair />}
+                    title={t("arrival.captured", { time: formatDateTime(arrival.capturedAt, locale) })}
+                  >
+                    {t("arrival.accuracy", { m: Math.round(arrival.accuracy ?? 0) })}
+                    {geofence.distance != null ? ` · ${t("arrival.distance", { m: geofence.distance })}` : ""}
+                    <p className="mt-1">{geofence.ok ? t("arrival.inRange", { limit: GEOFENCE_METERS }) : t("arrival.outside", { limit: GEOFENCE_METERS })}</p>
+                  </InlineAlert>
+                ) : (
+                  <p className="text-body-sm text-fg-muted">{t("arrival.rule", { limit: GEOFENCE_METERS })}</p>
+                )}
               </CardBody>
-              <CardFooter className="justify-between">
+              <StepFooter className="justify-between">
                 {data.instrument.lat != null ? (
                   <a
                     href={`https://www.openstreetmap.org/directions?to=${data.instrument.lat}%2C${data.instrument.lng}`}
@@ -360,13 +377,18 @@ export function FieldVerification({ data, locale }: { data: FieldData; locale: s
                 ) : (
                   <span />
                 )}
-                <div className="ml-auto flex flex-wrap justify-end gap-2">
-                  <Button variant={arrival ? "secondary" : "primary"} onClick={captureArrival} loading={busy === "gps"}>
-                    <Crosshair /> {arrival ? t("arrival.recapture") : t("arrival.capture")}
+                <div className="flex flex-col-reverse gap-2 sm:ml-auto sm:flex-row sm:flex-wrap sm:justify-end [&>button]:w-full sm:[&>button]:w-auto">
+                  <DismissDialog appId={data.id} inspectionId={insp.id} disabled={!conn.online} />
+                  {!siteMissing ? (
+                    <Button variant={geofence.ok ? "secondary" : "primary"} onClick={captureArrival} loading={busy === "gps"}>
+                      <Crosshair /> {arrival ? t("arrival.recapture") : t("arrival.capture")}
+                    </Button>
+                  ) : null}
+                  <Button onClick={() => setStep("identity")} disabled={!geofence.ok}>
+                    {t("next")}
                   </Button>
-                  {arrival ? <Button onClick={() => setStep("identity")}>{t("next")}</Button> : null}
                 </div>
-              </CardFooter>
+              </StepFooter>
             </Card>
           ) : null}
 
@@ -392,11 +414,11 @@ export function FieldVerification({ data, locale }: { data: FieldData; locale: s
                   description={t("identity.confirmHint")}
                 />
               </CardBody>
-              <CardFooter>
+              <StepFooter>
                 <Button onClick={() => setStep("photos")} disabled={!serialConfirmed}>
                   {t("next")}
                 </Button>
-              </CardFooter>
+              </StepFooter>
             </Card>
           ) : null}
 
@@ -420,16 +442,23 @@ export function FieldVerification({ data, locale }: { data: FieldData; locale: s
                       hint={t("photos.hint")}
                       disabled={!conn.online}
                       onUploaded={(r) => {
-                        const p = (r as { data?: { id: string; category: string; capturedAt: string } })?.data;
+                        const p = (r as { data?: { id: string; category: string; capturedAt: string; storageKey: string } })?.data;
                         if (p) setPhotos((prev) => [...prev, p]);
                       }}
+                    />
+                    <PhotoGallery
+                      className="mt-2 grid-cols-3 sm:grid-cols-3"
+                      photos={photos
+                        .filter((p) => p.category === c)
+                        .slice(-3)
+                        .map((p) => ({ id: p.id, storageKey: p.storageKey, label: formatDateTime(p.capturedAt, locale) }))}
                     />
                   </div>
                 ))}
               </CardBody>
-              <CardFooter>
+              <StepFooter>
                 <Button onClick={() => setStep("checklist")}>{t("next")}</Button>
-              </CardFooter>
+              </StepFooter>
             </Card>
           ) : null}
 
@@ -490,10 +519,10 @@ export function FieldVerification({ data, locale }: { data: FieldData; locale: s
                   </li>
                 ))}
               </ul>
-              <CardFooter className="justify-between">
+              <StepFooter className="justify-between">
                 <span className="text-caption text-fg-subtle">{t("checklist.autosave")}</span>
                 <Button onClick={() => setStep("tests")}>{t("next")}</Button>
-              </CardFooter>
+              </StepFooter>
             </Card>
           ) : null}
 
@@ -506,7 +535,7 @@ export function FieldVerification({ data, locale }: { data: FieldData; locale: s
               progress={progress}
               checklist={checklist}
               tests={tests}
-              missing={missingEvidence(!!arrival, data.requiredPhotos, photos.map((p) => p.category))}
+              missing={missingPhotos(data.requiredPhotos, photos.map((p) => p.category))}
               photoLabel={(c) => (tp.has(c) ? tp(c) : c.replaceAll("_", " "))}
             />
           ) : null}
@@ -686,9 +715,9 @@ function TestsStep({
           </Button>
         </form>
       </CardBody>
-      <CardFooter>
+      <StepFooter>
         <Button onClick={onNext}>{tf("next")}</Button>
-      </CardFooter>
+      </StepFooter>
     </Card>
   );
 }
@@ -715,7 +744,6 @@ function ResultStep({
   const router = useRouter();
   const [result, setResult] = React.useState<"" | "PASS" | "FAIL">("");
   const [observations, setObservations] = React.useState("");
-  const [reason, setReason] = React.useState("");
   const [serverMissing, setServerMissing] = React.useState<string[]>([]);
   const [confirm, setConfirm] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
@@ -726,7 +754,7 @@ function ResultStep({
     !progress.checklist && t("blockers.checklist"),
     result === "PASS" && failures > 0 && t("blockers.failures", { count: failures }),
     result === "FAIL" && observations.trim().length < 10 && t("blockers.observations"),
-    missing.length > 0 && reason.trim().length < EVIDENCE_REASON_MIN && t("blockers.evidence"),
+    missing.length > 0 && t("blockers.photos"),
   ].filter(Boolean) as string[];
 
   async function submit() {
@@ -737,14 +765,13 @@ function ResultStep({
           inspectionId,
           overallResult: result,
           observations: observations.trim() || undefined,
-          evidenceExceptionReason: missing.length ? reason.trim() : undefined,
         },
       });
       toast.success(t(result === "PASS" ? "passRecorded" : "failRecorded"));
       setConfirm(false);
       router.refresh();
     } catch (e) {
-      if (e instanceof ApiError && e.code === "EVIDENCE_REASON_REQUIRED") {
+      if (e instanceof ApiError && e.code === "PHOTOS_REQUIRED") {
         const m = (e.details as { missing?: unknown } | undefined)?.missing;
         setServerMissing(Array.isArray(m) ? m.filter((x): x is string => typeof x === "string") : []);
         setConfirm(false);
@@ -781,19 +808,13 @@ function ResultStep({
           <Textarea value={observations} onChange={(e) => setObservations(e.target.value)} rows={4} maxLength={4000} />
         </Field>
         {missing.length ? (
-          <div className="space-y-3 rounded-lg border border-warning-200 bg-warning-50 p-4">
-            <div>
-              <p className="text-body-sm font-semibold text-warning-800">{t("evidence.title")}</p>
-              <ul className="mt-1 list-disc pl-5 text-body-sm text-warning-800">
-                {missing.map((m) => (
-                  <li key={m}>{m === "arrival" ? t("evidence.arrival") : t("evidence.photo", { category: photoLabel(m.replace(/^photo:/, "")) })}</li>
-                ))}
-              </ul>
-            </div>
-            <Field id="evidenceReason" label={t("evidence.reason")} required hint={t("evidence.reasonHint")}>
-              <Textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} maxLength={1000} />
-            </Field>
-          </div>
+          <InlineAlert tone="warning" icon={<Camera />} title={t("evidence.title")}>
+            <ul className="list-disc pl-5">
+              {missing.map((m) => (
+                <li key={m}>{t("evidence.photo", { category: photoLabel(m) })}</li>
+              ))}
+            </ul>
+          </InlineAlert>
         ) : null}
         {result && blockers.length ? (
           <InlineAlert tone="warning" title={t("blockersTitle")}>
@@ -806,11 +827,11 @@ function ResultStep({
         ) : null}
         <p className="text-caption text-fg-subtle">{t("legalNote")}</p>
       </CardBody>
-      <CardFooter>
+      <StepFooter>
         <Button variant={result === "FAIL" ? "danger" : "success"} disabled={!result || blockers.length > 0} onClick={() => setConfirm(true)}>
           {t("record")}
         </Button>
-      </CardFooter>
+      </StepFooter>
       <ConfirmDialog
         open={confirm}
         onOpenChange={setConfirm}
@@ -866,11 +887,11 @@ function StampingStep({ appId }: { appId: string }) {
             <Textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={3} maxLength={1000} />
           </Field>
         </CardBody>
-        <CardFooter>
+        <StepFooter>
           <Button type="submit" loading={saving} disabled={stampIdentifier.trim().length < 2}>
             <Stamp /> {t("record")}
           </Button>
-        </CardFooter>
+        </StepFooter>
       </Card>
     </form>
   );
@@ -915,7 +936,7 @@ function CertificateStep({ data }: { data: FieldData }) {
       <CardBody>
         <InlineAlert tone="info">{t("validityNote")}</InlineAlert>
       </CardBody>
-      <CardFooter>
+      <StepFooter>
         <Button
           loading={saving}
           onClick={async () => {
@@ -932,7 +953,7 @@ function CertificateStep({ data }: { data: FieldData }) {
         >
           <Award /> {t("issue")}
         </Button>
-      </CardFooter>
+      </StepFooter>
     </Card>
   );
 }

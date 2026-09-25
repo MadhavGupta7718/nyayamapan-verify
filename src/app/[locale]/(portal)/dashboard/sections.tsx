@@ -190,7 +190,7 @@ export async function VolumeTrend({ user, className }: { user: SessionUser; clas
         title={t("title")}
         description={t("desc", { weeks })}
         action={
-          <div className="text-right">
+          <div className="flex items-baseline gap-2 sm:block sm:text-right">
             <p className="text-h3 text-fg tabular">{formatNumber(apps.length, locale)}</p>
             <p className="text-caption text-fg-subtle">{t("certified", { count: formatNumber(certs, locale) })}</p>
           </div>

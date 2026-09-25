@@ -10,6 +10,7 @@ export type DocRow = {
   id: string;
   documentType: string;
   fileName: string;
+  mimeType: string;
   sizeBytes: number;
   version: number;
   status: string;
@@ -44,12 +45,20 @@ export function DocumentPanel({
       {types.map((type) => {
         const doc = current.find((d) => d.documentType === type);
         const isRequired = required.includes(type);
+        const viewable = doc && !doc.storageKey.startsWith("applications/seed/");
         return (
           <li key={type} className="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center">
             <div className="flex min-w-0 flex-1 items-center gap-3">
-              <span className="grid size-9 shrink-0 place-items-center rounded-md bg-surface-sunken text-fg-subtle">
-                <FileText className="size-4" aria-hidden />
-              </span>
+              {viewable && doc.mimeType.startsWith("image/") ? (
+                <a href={`/api/storage/${doc.storageKey}`} target="_blank" rel="noreferrer" className="block size-12 shrink-0 overflow-hidden rounded-md border border-line bg-surface-sunken">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- private files behind the RBAC route, not optimisable by next/image */}
+                  <img src={`/api/storage/${doc.storageKey}`} alt={label(type)} loading="lazy" className="size-full object-cover" />
+                </a>
+              ) : (
+                <span className="grid size-9 shrink-0 place-items-center rounded-md bg-surface-sunken text-fg-subtle">
+                  <FileText className="size-4" aria-hidden />
+                </span>
+              )}
               <div className="min-w-0">
                 <p className="flex items-center gap-2 text-body-sm font-medium text-fg">
                   {label(type)}
@@ -66,7 +75,7 @@ export function DocumentPanel({
               ) : isRequired ? (
                 <StatusBadge status="PENDING" withTooltip={false} />
               ) : null}
-              {doc && !doc.storageKey.startsWith("applications/seed/") ? (
+              {viewable ? (
                 <a
                   href={`/api/storage/${doc.storageKey}`}
                   target="_blank"

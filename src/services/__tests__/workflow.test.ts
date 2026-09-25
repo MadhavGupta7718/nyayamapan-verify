@@ -52,7 +52,17 @@ describe("availableActions (role-bound)", () => {
   it("does not let an administrator submit or cancel someone else's draft", () => {
     expect(availableActions("DRAFT", "SUPER_ADMIN", false)).toEqual([]);
     expect(availableActions("RETURNED", "STATE_ADMIN", false)).toEqual([]);
-    expect(availableActions("DRAFT", "STATE_ADMIN", true)).toEqual(expect.arrayContaining(["submit", "cancel"]));
+    expect(availableActions("DRAFT", "STATE_ADMIN", true)).toEqual([]);
+  });
+
+  it("leaves document review to the State Admin; the Super Admin only views", () => {
+    expect(availableActions("SUBMITTED", "SUPER_ADMIN", false)).toEqual([]);
+    expect(availableActions("DOCUMENT_REVIEW", "SUPER_ADMIN", false)).toEqual([]);
+    expect(availableActions("DOCUMENT_REVIEW", "GATC_ADMIN", false)).toEqual([]);
+  });
+
+  it("lets the officer send an application back from the field", () => {
+    expect(canTransition("FIELD_VERIFICATION", "RETURNED")).toBe(true);
   });
 
   it("never lets a business user approve or reject", () => {

@@ -31,33 +31,39 @@ export function Modal({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       {trigger ? <Dialog.Trigger asChild>{trigger}</Dialog.Trigger> : null}
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 animate-fade-in bg-ink-900/40 backdrop-blur-[2px]" />
-        <Dialog.Content
-          className={cn(
-            "fixed left-1/2 top-1/2 z-50 flex max-h-[88vh] w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 animate-scale-in flex-col rounded-xl bg-surface shadow-overlay focus:outline-none",
-            size === "sm" && "max-w-md",
-            size === "md" && "max-w-lg",
-            size === "lg" && "max-w-2xl"
-          )}
-        >
-          <div className="flex items-start justify-between gap-4 px-6 pb-2 pt-5">
-            <div>
-              <Dialog.Title className="text-h3 text-fg">{title}</Dialog.Title>
-              {description ? (
-                <Dialog.Description className="mt-1 text-body-sm text-fg-muted">{description}</Dialog.Description>
-              ) : (
-                <Dialog.Description className="sr-only">{title}</Dialog.Description>
-              )}
+        {/* Content sits inside a flex overlay: the entry animation sets `transform`, so translate-based centring would be overwritten. */}
+        <Dialog.Overlay className="fixed inset-0 z-50 flex animate-fade-in items-end justify-center overflow-y-auto bg-ink-900/40 backdrop-blur-[2px] sm:items-center sm:p-4">
+          <Dialog.Content
+            className={cn(
+              "relative flex max-h-[92dvh] w-full animate-fade-up flex-col rounded-t-2xl bg-surface shadow-overlay focus:outline-none sm:max-h-[88vh] sm:animate-scale-in sm:rounded-xl",
+              size === "sm" && "sm:max-w-md",
+              size === "md" && "sm:max-w-lg",
+              size === "lg" && "sm:max-w-2xl"
+            )}
+          >
+            <div className="flex items-start justify-between gap-4 px-5 pb-2 pt-5 sm:px-6">
+              <div className="min-w-0">
+                <Dialog.Title className="text-h3 text-fg">{title}</Dialog.Title>
+                {description ? (
+                  <Dialog.Description className="mt-1 text-body-sm text-fg-muted">{description}</Dialog.Description>
+                ) : (
+                  <Dialog.Description className="sr-only">{title}</Dialog.Description>
+                )}
+              </div>
+              <Dialog.Close asChild>
+                <Button variant="ghost" size="icon-sm" aria-label={t("close")}>
+                  <X />
+                </Button>
+              </Dialog.Close>
             </div>
-            <Dialog.Close asChild>
-              <Button variant="ghost" size="icon-sm" aria-label={t("close")}>
-                <X />
-              </Button>
-            </Dialog.Close>
-          </div>
-          {children ? <div className="overflow-y-auto px-6 py-3">{children}</div> : null}
-          {footer ? <div className="flex justify-end gap-2 border-t border-line px-6 py-4">{footer}</div> : null}
-        </Dialog.Content>
+            {children ? <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3 sm:px-6">{children}</div> : null}
+            {footer ? (
+              <div className="flex shrink-0 flex-wrap-reverse justify-end gap-2 border-t border-line px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:px-6 [&>button]:min-w-[8rem] [&>button]:flex-1 sm:[&>button]:flex-none">
+                {footer}
+              </div>
+            ) : null}
+          </Dialog.Content>
+        </Dialog.Overlay>
       </Dialog.Portal>
     </Dialog.Root>
   );

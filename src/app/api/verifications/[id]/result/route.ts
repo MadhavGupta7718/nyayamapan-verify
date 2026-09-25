@@ -5,20 +5,19 @@ import { jsonError, readJson, requireApiUser, validationError } from "@/server/a
 import { loadOpenInspection, loadVerifiableApplication } from "@/server/verification-access";
 import { transitionApplication, WorkflowError } from "@/services/application-workflow";
 import { writeAudit } from "@/server/audit";
-import { EVIDENCE_REASON_MIN, missingEvidence, requiredPhotoCategories } from "@/lib/evidence";
+import { geofenceResponse } from "@/server/geofence";
+import { missingPhotos, requiredPhotoCategories } from "@/lib/evidence";
 
 const schema = z.object({
   inspectionId: z.string().uuid(),
   overallResult: z.enum(["PASS", "FAIL"]),
   observations: z.string().trim().max(4000).optional(),
-  evidenceExceptionReason: z.string().trim().max(1000).optional(),
 });
 
 /**
- * The officer's legal determination. Requires the serial number to be confirmed and every
- * checklist item to be answered; a PASS is refused while any checklist item or test is FAIL.
- * Arrival GPS and the instrument type's required photos must be on record, unless the officer
- * gives a reason, which is written to the audit log before anything else changes.
+ * The officer's legal determination. Requires the officer to be within 1 km of the site, the serial
+ * number to be confirmed, every checklist item to be answered and every required photo to be on
+ * record; a PASS is refused while any checklist item or test is FAIL.
  */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { user, response } = await requireApiUser();
@@ -31,11 +30,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const inspection = await loadOpenInspection(id, body.data.inspectionId);
   if (!inspection || inspection.completedAt) return jsonError(409, "INSPECTION_CLOSED");
   if (res.app.status !== "FIELD_VERIFICATION") return jsonError(409, "NOT_IN_FIELD_VERIFICATION", { status: res.app.status });
+  const outside = await geofenceResponse(inspection.id, res.app.instrument);
+  if (outside) return outside;
 
-  const [checklist, failedTests, arrivals, photos] = await Promise.all([
+  const [checklist, failedTests, photos] = await Promise.all([
     prisma.inspectionChecklist.findMany({ where: { inspectionId: inspection.id }, select: { result: true } }),
     prisma.inspectionTest.count({ where: { inspectionId: inspection.id, result: "FAIL" } }),
-    prisma.gpsRecord.count({ where: { inspectionId: inspection.id, purpose: "ARRIVAL" } }),
     prisma.inspectionPhoto.findMany({ where: { inspectionId: inspection.id }, select: { category: true } }),
   ]);
   if (!inspection.serialConfirmed) return jsonError(400, "SERIAL_NOT_CONFIRMED");
@@ -43,27 +43,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (body.data.overallResult === "PASS" && (checklist.some((c) => c.result === "FAIL") || failedTests > 0)) {
     return jsonError(400, "PASS_WITH_FAILED_ITEMS");
   }
-  const missing = missingEvidence(
-    arrivals > 0,
-    requiredPhotoCategories(res.app.instrument.instrumentType.requiredPhotos),
-    photos.map((p) => p.category)
-  );
-  const exceptionReason = body.data.evidenceExceptionReason ?? "";
-  if (missing.length && exceptionReason.length < EVIDENCE_REASON_MIN) {
-    return jsonError(400, "EVIDENCE_REASON_REQUIRED", { missing });
-  }
-  if (missing.length) {
-    await prisma.auditLog.create({
-      data: {
-        actorId: user.id,
-        action: "EVIDENCE_EXCEPTION",
-        entity: "Inspection",
-        entityId: inspection.id,
-        after: { applicationId: id, missing, result: body.data.overallResult },
-        reason: exceptionReason,
-      },
-    });
-  }
+  const missing = missingPhotos(requiredPhotoCategories(res.app.instrument.instrumentType.requiredPhotos), photos.map((p) => p.category));
+  if (missing.length) return jsonError(400, "PHOTOS_REQUIRED", { missing });
 
   await prisma.inspection.update({
     where: { id: inspection.id },
@@ -87,7 +68,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     action: "RESULT_RECORDED",
     entity: "Application",
     entityId: id,
-    after: { result: body.data.overallResult, inspectionId: inspection.id, ...(missing.length ? { evidenceException: missing } : {}) },
+    after: { result: body.data.overallResult, inspectionId: inspection.id },
   });
 
   return NextResponse.json({ data: { result: body.data.overallResult } });

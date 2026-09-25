@@ -24,14 +24,15 @@ const MODULES = {
   dashboard: ALL,
   applications: ALL,
   instruments: ["SUPER_ADMIN", "STATE_ADMIN", "BUSINESS_USER", "AUDITOR", "LMO", "INSPECTOR"],
-  verification: ["SUPER_ADMIN", "LMO", "INSPECTOR", "GATC_OFFICER", "GATC_ADMIN"],
+  verification: ["LMO", "INSPECTOR", "GATC_OFFICER"],
   scheduling: ["SUPER_ADMIN", "STATE_ADMIN", "GATC_ADMIN", "LMO", "INSPECTOR", "GATC_OFFICER"],
   certificates: ALL,
   gatc: ["SUPER_ADMIN", "STATE_ADMIN", "GATC_ADMIN", "GATC_OFFICER", "AUDITOR"],
   reports: ["SUPER_ADMIN", "STATE_ADMIN", "AUDITOR", "GATC_ADMIN"],
   notifications: ALL,
   rules: ["SUPER_ADMIN", "STATE_ADMIN", "AUDITOR"],
-  users: ["SUPER_ADMIN", "STATE_ADMIN"],
+  users: ["SUPER_ADMIN", "STATE_ADMIN", "GATC_ADMIN"],
+  geography: ["SUPER_ADMIN"],
   audit: ["SUPER_ADMIN", "STATE_ADMIN", "AUDITOR"],
   profile: ALL,
   settings: ALL,
@@ -78,6 +79,9 @@ async function signIn(email) {
   });
   jar.store(res);
   if (![...jar.cookies.keys()].some((k) => k.includes("session-token"))) throw new Error(`Sign-in failed for ${email}`);
+  const mark = await fetch(`${BASE}/api/session/mark`, { method: "POST", headers: { cookie: jar.header() } });
+  jar.store(mark);
+  if (mark.status !== 204) throw new Error(`Browser-session marker failed for ${email}: HTTP ${mark.status}`);
   return jar;
 }
 
@@ -132,7 +136,7 @@ for (const [role, email] of Object.entries(ROLES)) {
       check(`${role} ${locale}/${mod}`, await get(`/${locale}/${mod}`, jar), { allowForbidden: !roles.includes(role), locale });
     }
   }
-  const creators = ["BUSINESS_USER", "SUPER_ADMIN", "STATE_ADMIN"];
+  const creators = ["BUSINESS_USER"];
   const details = [
     ["applications/new", creators],
     ["instruments/new", creators],
@@ -178,6 +182,15 @@ expectStatus("anon cron/expiry", await api("/api/cron/expiry"), [401]);
 const jars = {};
 for (const role of ["BUSINESS_USER", "INSPECTOR", "AUDITOR", "SUPER_ADMIN"]) jars[role] = await signIn(ROLES[role]);
 
+// A session token without the browser-session marker (browser was closed) must not open the portal.
+{
+  const closed = new Jar();
+  for (const [k, v] of jars.AUDITOR.cookies) if (k !== "nm_bs") closed.cookies.set(k, v);
+  const page = await get("/en/dashboard", closed);
+  if (page.status !== 307 || !page.location?.includes("/login")) failures.push(`token without browser-session marker: HTTP ${page.status} (expected redirect to login)`);
+  expectStatus("token without browser-session marker (API)", await api("/api/audit", closed), [401]);
+}
+
 expectStatus("BUSINESS GET /api/audit", await api("/api/audit", jars.BUSINESS_USER), [403]);
 expectStatus("BUSINESS POST /api/users", await api("/api/users", jars.BUSINESS_USER, { method: "POST", body: "{}" }), [403]);
 expectStatus("BUSINESS PATCH /api/settings", await api("/api/settings", jars.BUSINESS_USER, { method: "PATCH", body: "{}" }), [403]);
@@ -185,7 +198,11 @@ expectStatus("BUSINESS POST /api/rules", await api("/api/rules", jars.BUSINESS_U
 expectStatus("INSPECTOR POST /api/rules", await api("/api/rules", jars.INSPECTOR, { method: "POST", body: "{}" }), [403]);
 expectStatus("AUDITOR POST /api/schedules", await api("/api/schedules", jars.AUDITOR, { method: "POST", body: "{}" }), [403]);
 expectStatus("BUSINESS POST /api/schedules", await api("/api/schedules", jars.BUSINESS_USER, { method: "POST", body: "{}" }), [403]);
+expectStatus("SUPER_ADMIN POST /api/schedules", await api("/api/schedules", jars.SUPER_ADMIN, { method: "POST", body: "{}" }), [403]);
+expectStatus("BUSINESS POST /api/geography/states", await api("/api/geography/states", jars.BUSINESS_USER, { method: "POST", body: "{}" }), [403]);
+expectStatus("AUDITOR POST /api/geography/districts", await api("/api/geography/districts", jars.AUDITOR, { method: "POST", body: "{}" }), [403]);
 if (inspectionApp) {
+  expectStatus("SUPER_ADMIN start verification", await api(`/api/verifications/${inspectionApp.id}/start`, jars.SUPER_ADMIN, { method: "POST" }), [403, 404]);
   expectStatus("BUSINESS record verification result", await api(`/api/verifications/${inspectionApp.id}/result`, jars.BUSINESS_USER, { method: "POST", body: JSON.stringify({ result: "PASS" }) }), [403, 404]);
   expectStatus("AUDITOR start verification", await api(`/api/verifications/${inspectionApp.id}/start`, jars.AUDITOR, { method: "POST" }), [403, 404]);
 }

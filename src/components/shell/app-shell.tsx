@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { Sidebar } from "./sidebar";
 import { TopBar } from "./topbar";
 import { MobileFieldNav } from "./mobile-field-nav";
+import { SessionGuard } from "./session-guard";
 
 export async function AppShell({
   user,
@@ -33,11 +34,12 @@ export async function AppShell({
           brand={t("brand")}
           tagline={t("brandTagline")}
         />
-        <main id="main" className={cn("mx-auto w-full max-w-[1440px] flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8", field ? "pb-28 lg:pb-8" : "pb-12")}>
+        <main id="main" className={cn("mx-auto w-full max-w-[1440px] flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8", field ? "pb-[calc(9rem+env(safe-area-inset-bottom))] lg:pb-8" : "pb-12")}>
           {children}
         </main>
       </div>
       {field ? <MobileFieldNav /> : null}
+      <SessionGuard />
     </div>
   );
 }

@@ -167,7 +167,7 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
         title={t("title")}
         description={t(isBusiness ? "descBusiness" : "desc")}
         actions={
-          isBusiness || user.role === "SUPER_ADMIN" ? (
+          isBusiness ? (
             <Link href="/applications/new" className={buttonVariants()}>
               <FilePlus2 /> {t("new")}
             </Link>

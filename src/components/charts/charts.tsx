@@ -1,6 +1,7 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { TONE_CLASSES, type Tone } from "@/lib/status";
+import { integerTicks } from "@/lib/chart-scale";
 
 /**
  * Lightweight SVG/CSS charts rendered on the server (no client JS, no chart library),
@@ -18,41 +19,53 @@ export function ColumnChart({
   valueLabel: string;
   className?: string;
 }) {
-  const max = Math.max(1, ...data.map((d) => d.value));
-  const ticks = [0, 0.5, 1].map((f) => Math.round(max * f));
+  const ticks = integerTicks(Math.max(0, ...data.map((d) => d.value)));
+  const top = ticks[ticks.length - 1];
+  const pct = (v: number) => (v / top) * 100;
+  const crowded = data.length > 8;
   return (
     <figure className={cn("w-full", className)}>
-      <div className="relative flex gap-2" style={{ height }}>
-        <div className="flex flex-col justify-between pb-6 text-right text-caption text-fg-faint tabular" aria-hidden>
-          {ticks
-            .slice()
-            .reverse()
-            .map((t, i) => (
-              <span key={i}>{t}</span>
-            ))}
-        </div>
-        <div className="relative flex flex-1 items-end gap-2 border-b border-line pb-0">
-          <div className="pointer-events-none absolute inset-x-0 top-0 border-t border-dashed border-line" aria-hidden />
-          <div className="pointer-events-none absolute inset-x-0 top-1/2 border-t border-dashed border-line" aria-hidden />
-          {data.map((d) => (
-            <div key={d.label} className="group relative flex h-full flex-1 flex-col items-center justify-end">
-              <span className="mb-1 text-caption font-medium text-fg-muted opacity-0 transition-opacity group-hover:opacity-100 tabular">
-                {d.value}
-              </span>
-              <div
-                className={cn(
-                  "w-full max-w-[2.5rem] origin-bottom animate-fade-up rounded-t-md transition-colors",
-                  d.highlight ? "bg-brand-700" : "bg-brand-200 group-hover:bg-brand-400"
-                )}
-                style={{ height: `${Math.max(2, (d.value / max) * 100)}%` }}
-                title={`${d.label}: ${d.value}`}
-              />
-              <span className="absolute -bottom-6 text-caption text-fg-subtle">{d.label}</span>
-            </div>
+      <div className="flex gap-2 pt-5">
+        <div className="relative w-7 shrink-0 text-right text-caption text-fg-faint tabular" style={{ height }} aria-hidden>
+          {ticks.map((t) => (
+            <span key={t} className="absolute right-0 translate-y-1/2 leading-none" style={{ bottom: `${pct(t)}%` }}>
+              {t}
+            </span>
           ))}
         </div>
+        <div className="min-w-0 flex-1">
+          <div className="relative flex gap-1 border-b border-line sm:gap-2" style={{ height }}>
+            {ticks.slice(1).map((t) => (
+              <div key={t} className="pointer-events-none absolute inset-x-0 border-t border-dashed border-line" style={{ bottom: `${pct(t)}%` }} aria-hidden />
+            ))}
+            {data.map((d, i) => (
+              <div key={i} className="group relative h-full min-w-0 flex-1" title={`${d.label}: ${d.value}`}>
+                <div
+                  className={cn(
+                    "absolute inset-x-0 bottom-0 mx-auto max-w-[2.5rem] origin-bottom animate-fade-up transition-colors",
+                    d.value === 0 ? "h-0.5 rounded-sm bg-ink-200" : "rounded-t-md",
+                    d.value > 0 && (d.highlight ? "bg-brand-700" : "bg-brand-200 group-hover:bg-brand-400")
+                  )}
+                  style={d.value > 0 ? { height: `${Math.max(1.5, pct(d.value))}%` } : undefined}
+                />
+                <span
+                  className={cn("absolute inset-x-0 text-center text-[0.6875rem] font-medium leading-none tabular", d.value === 0 ? "text-fg-faint" : "text-fg-muted", crowded && "max-sm:hidden")}
+                  style={{ bottom: `calc(${d.value > 0 ? Math.max(1.5, pct(d.value)) : 0}% + 0.25rem)` }}
+                >
+                  {d.value}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-1.5 flex gap-1 sm:gap-2" aria-hidden>
+            {data.map((d, i) => (
+              <span key={i} className={cn("min-w-0 flex-1 truncate text-center text-caption text-fg-subtle", crowded && i % 2 === 1 && "max-sm:invisible")}>
+                {d.label}
+              </span>
+            ))}
+          </div>
+        </div>
       </div>
-      <div className="h-6" />
       <table className="sr-only">
         <caption>{valueLabel}</caption>
         <tbody>

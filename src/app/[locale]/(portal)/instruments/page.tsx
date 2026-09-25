@@ -44,7 +44,7 @@ export default async function InstrumentsPage({ searchParams }: { searchParams: 
   const typeFilter = params.get("type");
   const scope = instrumentScope(user);
   const isBusiness = user.role === "BUSINESS_USER";
-  const canRegister = ["BUSINESS_USER", "SUPER_ADMIN", "STATE_ADMIN"].includes(user.role);
+  const canRegister = user.role === "BUSINESS_USER";
 
   const where: Prisma.InstrumentWhereInput = {
     AND: [

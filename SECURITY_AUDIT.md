@@ -75,19 +75,17 @@ Scope: authentication and session lifetime, server-side authorisation (RBAC and 
   - The landing-page certificate lookup (lookup API, then client navigation, then VALID) worked.
   - Registration (state → district fetch) and credential sign-in through the login form both worked.
 
-### SEC-05 · A result can be recorded without GPS arrival or required photos
+### SEC-05 · A result could be recorded without GPS arrival or required photos
 - **Severity:** MEDIUM (evidence integrity)
 - **Page:** Field verification → Result; `POST /api/verifications/[id]/result`
 - **Root cause:** Both the UI and the API require serial-number confirmation and a complete checklist, and they refuse PASS while any item or test failed. Neither checks that an arrival GPS fix or the rule-required photo categories exist. An officer can therefore record a legal determination with no location or photo evidence.
-- **Fix:** The project owner chose "require the evidence, but allow a written exception". A hard block would stop officers whose device denies GPS, or whose photos are still in the offline queue.
-  - `src/lib/evidence.ts` defines what is required: an `ARRIVAL` GPS record plus every category in the instrument type's `requiredPhotos`, falling back to `instrument_front` if none are configured. The client and the server share this definition.
-  - `POST /api/verifications/[id]/result` computes what is missing from the database, not from the request. If anything is missing and `evidenceExceptionReason` is shorter than 10 characters after trimming, it returns `400 EVIDENCE_REASON_REQUIRED` with the missing list.
-  - With a valid reason, it writes an `EVIDENCE_EXCEPTION` audit entry (actor, inspection, missing items, result and reason) *before* the inspection is changed. `RESULT_RECORDED` also carries `evidenceException`.
-  - Staff see "Result recorded without all required evidence", with the missing items and the reason, on the application page. Business users do not.
-- **Verification:** On `LMA-2026-000038` as `lmo3`:
-  - A direct API call with no reason returned 400 with `["arrival","photo:instrument_front","photo:serial_plate","photo:display","photo:seal"]`.
-  - A reason of `"   short   "` was trimmed to 5 characters and also got 400. Neither call wrote anything.
-  - Through the UI, with a reason, PASS was recorded. The database then held one `EVIDENCE_EXCEPTION` entry with that reason and missing list, followed by `RESULT_RECORDED` with `evidenceException`.
+- **Fix (revised):** The earlier written-exception path has been removed. The evidence is now a hard requirement, enforced on the server.
+  - `src/lib/geo.ts` defines a 1 km geofence (`GEOFENCE_METERS`). `src/server/geofence.ts` checks the latest `ARRIVAL` GPS record against the instrument's registered coordinates.
+  - The checklist, tests, photos, result and stamping endpoints all call the geofence check. They answer `409 ARRIVAL_REQUIRED` when there is no arrival fix, `409 SITE_LOCATION_MISSING` when the instrument has no coordinates, and `403 OUTSIDE_GEOFENCE` (with the distance) when the officer is more than 1 km away. The client disables every step after Arrival until the fix is inside the fence, but the server check is what counts.
+  - `POST /api/verifications/[id]/result` computes missing photo categories from the database (`missingPhotos` in `src/lib/evidence.ts`, using the instrument type's `requiredPhotos` or `instrument_front`). It returns `400 PHOTOS_REQUIRED` if any are missing. There is no exception reason.
+  - If the site cannot be found, the officer uses "Location not found" (`POST /api/verifications/[id]/dismiss`). It needs a camera photo and a reason of at least 20 characters. It records the photo under `location_not_found`, stores a `DISMISSAL` GPS record when available, marks the inspection dismissed, and cancels the assignment and schedule. It then returns the application to `RETURNED` with the reason, writes `VERIFICATION_DISMISSED` and notifies the State Admins. The applicant can then correct the instrument location (`PATCH /api/instruments/[id]`, only while no application is open other than `DRAFT`/`RETURNED`, audited as `INSTRUMENT_LOCATION_UPDATED`).
+  - New instruments must be registered with a district and coordinates, so every new site can be geofenced.
+- **Verification:** Covered by unit tests for `checkGeofence`, `missingPhotos` and `canEditLocation`. Each geofenced endpoint returns before writing anything when the check fails.
 
 ### SEC-06 · CSP still permits inline scripts
 - **Severity:** LOW

@@ -79,8 +79,9 @@ export function InstrumentForm({
     if (v.serialNumber.trim().length < 2) e.serialNumber = t("errors.min", { n: 2 });
     if (v.yearOfManufacture && (Number(v.yearOfManufacture) < 1950 || Number(v.yearOfManufacture) > year)) e.yearOfManufacture = t("errors.year", { max: year });
     if (!v.stateId) e.stateId = t("errors.required");
-    if (v.latitude && (Number.isNaN(Number(v.latitude)) || Math.abs(Number(v.latitude)) > 90)) e.latitude = t("errors.coord");
-    if (v.longitude && (Number.isNaN(Number(v.longitude)) || Math.abs(Number(v.longitude)) > 180)) e.longitude = t("errors.coord");
+    if (!v.districtId) e.districtId = t("errors.required");
+    if (!v.latitude.trim() || Number.isNaN(Number(v.latitude)) || Math.abs(Number(v.latitude)) > 90) e.latitude = t("errors.coord");
+    if (!v.longitude.trim() || Number.isNaN(Number(v.longitude)) || Math.abs(Number(v.longitude)) > 180) e.longitude = t("errors.coord");
     setErrors(e);
     if (Object.keys(e).length) {
       const first = Object.keys(e)[0];
@@ -124,9 +125,9 @@ export function InstrumentForm({
           locationLabel: v.locationLabel.trim() || undefined,
           address: v.address.trim() || undefined,
           stateId: v.stateId,
-          districtId: v.districtId || undefined,
-          latitude: v.latitude ? Number(v.latitude) : undefined,
-          longitude: v.longitude ? Number(v.longitude) : undefined,
+          districtId: v.districtId,
+          latitude: Number(v.latitude),
+          longitude: Number(v.longitude),
         },
       });
       toast.success(t("created", { code: res.data.instrumentCode }));
@@ -199,7 +200,7 @@ export function InstrumentForm({
                 ))}
               </Select>
             </Field>
-            <Field id="f-districtId" label={t("fields.district")}>
+            <Field id="f-districtId" label={t("fields.district")} required error={errors.districtId}>
               <Select value={v.districtId} onChange={set("districtId")} disabled={!districts.length}>
                 <option value="">{t("select")}</option>
                 {districts.map((d) => (
@@ -215,10 +216,10 @@ export function InstrumentForm({
             <Field id="f-address" label={t("fields.address")}>
               <Input value={v.address} onChange={set("address")} maxLength={300} />
             </Field>
-            <Field id="f-latitude" label={t("fields.latitude")} error={errors.latitude}>
+            <Field id="f-latitude" label={t("fields.latitude")} required error={errors.latitude}>
               <Input value={v.latitude} onChange={set("latitude")} inputMode="decimal" className="font-mono" />
             </Field>
-            <Field id="f-longitude" label={t("fields.longitude")} error={errors.longitude}>
+            <Field id="f-longitude" label={t("fields.longitude")} required error={errors.longitude}>
               <Input value={v.longitude} onChange={set("longitude")} inputMode="decimal" className="font-mono" />
             </Field>
             <div className="sm:col-span-2">

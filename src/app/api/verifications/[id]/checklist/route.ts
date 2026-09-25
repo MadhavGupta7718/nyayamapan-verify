@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/db/client";
 import { jsonError, readJson, requireApiUser, validationError } from "@/server/api";
 import { loadOpenInspection, loadVerifiableApplication } from "@/server/verification-access";
+import { geofenceResponse } from "@/server/geofence";
 
 const schema = z.object({
   inspectionId: z.string().uuid(),
@@ -22,6 +23,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (!body.success) return validationError(body.error);
   const inspection = await loadOpenInspection(id, body.data.inspectionId);
   if (!inspection || inspection.completedAt) return jsonError(409, "INSPECTION_CLOSED");
+  const outside = await geofenceResponse(inspection.id, res.app.instrument);
+  if (outside) return outside;
 
   const ids = body.data.items.map((i) => i.id);
   const owned = await prisma.inspectionChecklist.count({ where: { id: { in: ids }, inspectionId: inspection.id } });

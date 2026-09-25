@@ -38,8 +38,12 @@ export async function POST(req: NextRequest) {
   const body = schema.safeParse(await readJson(req));
   if (!body.success) return validationError(body.error);
 
-  const state = await prisma.state.findUnique({ where: { id: body.data.stateId }, select: { id: true } });
+  const state = await prisma.state.findFirst({ where: { id: body.data.stateId, isActive: true }, select: { id: true } });
   if (!state) return jsonError(400, "INVALID_STATE");
+  if (body.data.districtId) {
+    const district = await prisma.district.findFirst({ where: { id: body.data.districtId, stateId: state.id, isActive: true }, select: { id: true } });
+    if (!district) return jsonError(400, "INVALID_DISTRICT");
+  }
 
   try {
     const result = await prisma.$transaction(async (tx) => {

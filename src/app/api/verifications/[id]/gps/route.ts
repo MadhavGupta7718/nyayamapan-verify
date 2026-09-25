@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/db/client";
 import { jsonError, readJson, requireApiUser, validationError } from "@/server/api";
 import { loadOpenInspection, loadVerifiableApplication } from "@/server/verification-access";
+import { checkGeofence, GEOFENCE_METERS } from "@/lib/geo";
 
 const schema = z.object({
   inspectionId: z.string().uuid(),
@@ -34,5 +35,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     },
     select: { id: true, latitude: true, longitude: true, accuracy: true, capturedAt: true },
   });
-  return NextResponse.json({ data: record }, { status: 201 });
+  const geofence = checkGeofence({ lat: res.app.instrument.latitude, lng: res.app.instrument.longitude }, { lat: record.latitude, lng: record.longitude });
+  return NextResponse.json({ data: record, geofence: { ...geofence, limit: GEOFENCE_METERS } }, { status: 201 });
 }

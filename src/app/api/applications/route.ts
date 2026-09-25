@@ -19,6 +19,7 @@ const createSchema = z.object({
     .optional()
     .or(z.literal("")),
   preferredSlot: z.string().max(40).optional(),
+  preferredGatcId: z.string().uuid().optional(),
   remarks: z.string().max(2000).optional(),
   declarationAccepted: z.boolean().optional(),
   submit: z.boolean().default(false),
@@ -55,7 +56,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const { user, response } = await requireApiUser(["BUSINESS_USER", "SUPER_ADMIN", "STATE_ADMIN"]);
+  const { user, response } = await requireApiUser(["BUSINESS_USER"]);
   if (response) return response;
   const body = createSchema.safeParse(await readJson(req));
   if (!body.success) return validationError(body.error);
@@ -63,9 +64,23 @@ export async function POST(req: NextRequest) {
 
   const instrument = await prisma.instrument.findFirst({
     where: { AND: [{ id: body.data.instrumentId }, instrumentScope(user)] },
-    select: { id: true, organizationId: true },
+    select: { id: true, organizationId: true, stateId: true, instrumentTypeId: true },
   });
   if (!instrument) return jsonError(404, "INSTRUMENT_NOT_FOUND");
+
+  if (body.data.preferredGatcId) {
+    const gatc = await prisma.gATCProfile.findFirst({
+      where: {
+        id: body.data.preferredGatcId,
+        approvalStatus: "APPROVED",
+        stateId: instrument.stateId ?? "__none__",
+        OR: [{ approvalEnd: null }, { approvalEnd: { gte: new Date() } }],
+      },
+      select: { authorizations: { where: { instrumentTypeId: instrument.instrumentTypeId }, select: { id: true } } },
+    });
+    if (!gatc) return jsonError(400, "INVALID_GATC");
+    if (!gatc.authorizations.length) return jsonError(400, "GATC_NOT_AUTHORISED_FOR_TYPE");
+  }
 
   const open = await prisma.application.findFirst({
     where: {
@@ -85,6 +100,7 @@ export async function POST(req: NextRequest) {
       verificationType: body.data.verificationType,
       preferredDate: body.data.preferredDate ? new Date(body.data.preferredDate) : undefined,
       preferredSlot: body.data.preferredSlot,
+      preferredGatcId: body.data.preferredGatcId,
       remarks: body.data.remarks,
       declarationAccepted: !!body.data.declarationAccepted,
       status: "DRAFT",

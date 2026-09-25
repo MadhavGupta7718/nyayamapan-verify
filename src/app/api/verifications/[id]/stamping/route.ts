@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/db/client";
 import { jsonError, readJson, requireApiUser, validationError } from "@/server/api";
 import { loadVerifiableApplication } from "@/server/verification-access";
+import { geofenceResponse } from "@/server/geofence";
 import { transitionApplication, WorkflowError } from "@/services/application-workflow";
 import { writeAudit } from "@/server/audit";
 
@@ -30,6 +31,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   });
   if (!inspection) return jsonError(409, "NO_PASSED_INSPECTION");
   if (inspection.stamping) return jsonError(409, "ALREADY_STAMPED");
+  const outside = await geofenceResponse(inspection.id, res.app.instrument);
+  if (outside) return outside;
 
   const officer = await prisma.user.findUnique({ where: { id: user.id }, select: { name: true, role: true } });
   const stamp = await prisma.stampingRecord.create({

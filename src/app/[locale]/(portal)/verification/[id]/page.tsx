@@ -48,8 +48,9 @@ export default async function FieldVerificationPage({ params }: Params) {
           instrumentType: { select: { name: true, nameHi: true, requiredPhotos: true } },
         },
       },
-      schedules: { orderBy: { scheduledDate: "desc" }, take: 1, select: { scheduledDate: true, timeSlot: true } },
+      schedules: { orderBy: { createdAt: "desc" }, take: 1, select: { scheduledDate: true, timeSlot: true } },
       inspections: {
+        where: { dismissedAt: null },
         orderBy: { createdAt: "desc" },
         take: 1,
         select: {
@@ -60,7 +61,7 @@ export default async function FieldVerificationPage({ params }: Params) {
           observations: true,
           checklists: { orderBy: { itemKey: "asc" }, select: { id: true, itemKey: true, itemLabel: true, result: true, remarks: true, ruleRef: true } },
           tests: { select: { id: true, testName: true, expectedValue: true, observedValue: true, unit: true, result: true, permissibleError: true, calculatedError: true } },
-          photos: { orderBy: { capturedAt: "asc" }, select: { id: true, category: true, capturedAt: true } },
+          photos: { orderBy: { capturedAt: "asc" }, select: { id: true, category: true, capturedAt: true, storageKey: true } },
           gpsRecords: { orderBy: { capturedAt: "desc" }, select: { purpose: true, accuracy: true, capturedAt: true, latitude: true, longitude: true } },
           stamping: { select: { stampIdentifier: true, stampDate: true } },
         },
@@ -101,7 +102,7 @@ export default async function FieldVerificationPage({ params }: Params) {
             ruleRef: c.ruleRef,
           })),
           tests: insp.tests.map((x) => ({ ...x })),
-          photos: insp.photos.map((p) => ({ id: p.id, category: p.category, capturedAt: p.capturedAt.toISOString() })),
+          photos: insp.photos.map((p) => ({ id: p.id, category: p.category, capturedAt: p.capturedAt.toISOString(), storageKey: p.storageKey })),
           arrival: insp.gpsRecords.find((g) => g.purpose === "ARRIVAL")
             ? (() => {
                 const g = insp.gpsRecords.find((x) => x.purpose === "ARRIVAL")!;

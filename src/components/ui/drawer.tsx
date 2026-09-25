@@ -59,7 +59,11 @@ export function Drawer({
             </Dialog.Close>
           </div>
           <div className="flex-1 overflow-y-auto px-6 py-5 scrollbar-thin">{children}</div>
-          {footer ? <div className="flex justify-end gap-2 border-t border-line bg-surface-subtle px-6 py-4">{footer}</div> : null}
+          {footer ? (
+            <div className="flex flex-wrap-reverse justify-end gap-2 border-t border-line bg-surface-subtle px-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 [&>button]:min-w-[8rem] [&>button]:flex-1 sm:[&>button]:flex-none">
+              {footer}
+            </div>
+          ) : null}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

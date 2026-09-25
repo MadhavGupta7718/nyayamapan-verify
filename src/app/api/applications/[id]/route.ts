@@ -11,6 +11,7 @@ import {
   transitionApplication,
   type ApplicationAction,
 } from "@/services/application-workflow";
+import { autoAssign } from "@/services/assignment";
 
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { user, response } = await requireApiUser();
@@ -82,6 +83,14 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       actorId: user.id,
       reason: body.data.reason,
     });
+    if (body.data.action === "approve") {
+      const assignment = await autoAssign(app.id, user.id).catch((err) => {
+        console.error("[auto-assign]", app.id, err);
+        return { assigned: false as const, reason: "NO_OFFICER" as const };
+      });
+      const current = assignment.assigned ? "ASSIGNED" : updated.status;
+      return NextResponse.json({ data: { id: updated.id, status: current, assignment } });
+    }
     return NextResponse.json({ data: { id: updated.id, status: updated.status } });
   } catch (e) {
     if (e instanceof WorkflowError) return jsonError(e.code === "CONCURRENT_UPDATE" ? 409 : 400, e.code);

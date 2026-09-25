@@ -9,6 +9,7 @@ import { config } from "dotenv";
 import { customAlphabet, nanoid } from "nanoid";
 import { dateOnly, payloadHash, type CertificatePayload } from "../src/lib/certificate-integrity";
 import { PlatformHmacSigner } from "../src/services/certificate-signer";
+import { syncGeography } from "./geo-sync";
 
 config({ path: ".env" });
 
@@ -132,7 +133,7 @@ async function main() {
   // ---------------------------------------------------------------- geography
   const geo = [
     { code: "DL", name: "Delhi", nameHi: "दिल्ली", districts: [["New Delhi", "नई दिल्ली", 28.6139, 77.209], ["South Delhi", "दक्षिण दिल्ली", 28.5245, 77.1855], ["North West Delhi", "उत्तर पश्चिम दिल्ली", 28.7186, 77.0685]] },
-    { code: "MH", name: "Maharashtra", nameHi: "महाराष्ट्र", districts: [["Mumbai", "मुंबई", 19.076, 72.8777], ["Pune", "पुणे", 18.5204, 73.8567]] },
+    { code: "MH", name: "Maharashtra", nameHi: "महाराष्ट्र", districts: [["Mumbai City", "मुंबई शहर", 19.076, 72.8777], ["Pune", "पुणे", 18.5204, 73.8567]] },
     { code: "KA", name: "Karnataka", nameHi: "कर्नाटक", districts: [["Bengaluru Urban", "बेंगलुरु शहरी", 12.9716, 77.5946], ["Mysuru", "मैसूरु", 12.2958, 76.6394]] },
     { code: "GJ", name: "Gujarat", nameHi: "गुजरात", districts: [["Ahmedabad", "अहमदाबाद", 23.0225, 72.5714]] },
     { code: "WB", name: "West Bengal", nameHi: "पश्चिम बंगाल", districts: [["Kolkata", "कोलकाता", 22.5726, 88.3639]] },
@@ -150,6 +151,8 @@ async function main() {
     }
     states[g.code] = { id: s.id, code: g.code, districts: ds };
   }
+  const geoSync = await syncGeography(prisma);
+  console.log(`Geography: ${geoSync.statesCreated} more states/UTs and ${geoSync.districtsCreated} more districts from the reference list.`);
 
   // ---------------------------------------------------------------- organisations
   const orgDefs = [
@@ -188,25 +191,37 @@ async function main() {
   const stateOfOrg = (i: number) => orgDefs[i].state;
 
   // ---------------------------------------------------------------- people
-  const mk = (email: string, name: string, role: Role, extra: { stateId?: string; organizationId?: string; mobile?: string } = {}) =>
-    prisma.user.create({ data: { email, name, role, passwordHash, lastLoginAt: daysFromNow(-rand() * 5), ...extra } });
+  const mk = (email: string, name: string, role: Role, { districtIds, ...extra }: { stateId?: string; organizationId?: string; mobile?: string; districtIds?: string[] } = {}) =>
+    prisma.user.create({
+      data: {
+        email,
+        name,
+        role,
+        passwordHash,
+        lastLoginAt: daysFromNow(-rand() * 5),
+        ...extra,
+        jurisdiction: districtIds?.length ? { connect: districtIds.map((id) => ({ id })) } : undefined,
+      },
+    });
 
   const admin = await mk("admin@nyayamapan.local", "Anjali Verma", Role.SUPER_ADMIN);
   const stateDl = await mk("state@nyayamapan.local", "Rakesh Sharma", Role.STATE_ADMIN, { stateId: states.DL.id });
   await mk("state.mh@nyayamapan.local", "Sunita Patil", Role.STATE_ADMIN, { stateId: states.MH.id });
-  const lmoDefs: [string, string, string][] = [
-    ["lmo@nyayamapan.local", "Vikram Singh", "DL"],
-    ["lmo2@nyayamapan.local", "Pooja Nair", "DL"],
-    ["lmo3@nyayamapan.local", "Sachin Kulkarni", "MH"],
-    ["lmo4@nyayamapan.local", "Kavya Reddy", "KA"],
-    ["lmo5@nyayamapan.local", "Harish Desai", "GJ"],
-    ["lmo6@nyayamapan.local", "Arnab Ghosh", "WB"],
-    ["lmo7@nyayamapan.local", "Neha Tripathi", "UP"],
+  // Each LMO covers districts of their state (by index into the seeded districts above); auto-assignment uses this.
+  const lmoDefs: [string, string, string, number[]][] = [
+    ["lmo@nyayamapan.local", "Vikram Singh", "DL", [0, 1]],
+    ["lmo2@nyayamapan.local", "Pooja Nair", "DL", [2, 0]],
+    ["lmo3@nyayamapan.local", "Sachin Kulkarni", "MH", [0, 1]],
+    ["lmo4@nyayamapan.local", "Kavya Reddy", "KA", [0, 1]],
+    ["lmo5@nyayamapan.local", "Harish Desai", "GJ", [0]],
+    ["lmo6@nyayamapan.local", "Arnab Ghosh", "WB", [0]],
+    ["lmo7@nyayamapan.local", "Neha Tripathi", "UP", [0, 1]],
   ];
-  const lmos: { id: string; name: string; state: string }[] = [];
-  for (const [email, name, st] of lmoDefs) {
-    const u = await mk(email, name, Role.LMO, { stateId: states[st].id, mobile: `98${Math.floor(10000000 + rand() * 89999999)}` });
-    lmos.push({ id: u.id, name, state: st });
+  const lmos: { id: string; name: string; state: string; districtIds: string[] }[] = [];
+  for (const [email, name, st, idx] of lmoDefs) {
+    const districtIds = idx.map((n) => states[st].districts[n].id);
+    const u = await mk(email, name, Role.LMO, { stateId: states[st].id, mobile: `98${Math.floor(10000000 + rand() * 89999999)}`, districtIds });
+    lmos.push({ id: u.id, name, state: st, districtIds });
   }
   await mk("inspector@nyayamapan.local", "Farhan Qureshi", Role.INSPECTOR, { stateId: states.DL.id });
   await mk("gatc.admin@nyayamapan.local", "Meera Iyer", Role.GATC_ADMIN, { stateId: states.DL.id });
@@ -390,6 +405,9 @@ async function main() {
       })
     );
   }
+  await prisma.user.update({ where: { id: gatcOfficer.id }, data: { gatcId: gatcs[0].id } });
+  const GATC_TYPES = ["WEIGHTS", "COUNTER_MACHINE", "FUEL_DISPENSER", "CAPACITY_MEASURES"];
+  let gatcQueueSeeded = false;
 
   // ---------------------------------------------------------------- instruments & applications
   const makers: Record<string, [string, string][]> = {
@@ -442,7 +460,10 @@ async function main() {
     const org = orgs[orgIdx];
     const st = states[stateOfOrg(orgIdx)];
     const district = st.districts.find((d) => d.id === org.districtId) ?? st.districts[0];
-    const typeCode = pick(orgTypes[orgDefs[orgIdx].type]);
+    // One approved Delhi application goes the GATC route and waits in the GATC Admin's queue.
+    const gatcQueueSample = status === "APPROVED" && st.code === "DL" && !gatcQueueSeeded;
+    if (gatcQueueSample) gatcQueueSeeded = true;
+    const typeCode = gatcQueueSample ? "WEIGHTS" : pick(orgTypes[orgDefs[orgIdx].type]);
     const type = types[typeCode];
     const [manufacturer, modelName] = pick(makers[typeCode]);
     const lat = district.lat + (rand() - 0.5) * 0.08;
@@ -496,8 +517,9 @@ async function main() {
     const history = historyFor(effectiveStatus);
     const createdAt = certifiedApp ? new Date(verifiedAt.getTime() - 12 * DAY) : daysFromNow(-(1 + Math.floor(rand() * 20)));
     const step = certifiedApp ? DAY : Math.max(3_600_000, (Date.now() - createdAt.getTime()) / (history.length + 1));
-    const officer = lmos.find((l) => l.state === st.code) ?? lmos[0];
-    const useGatc = st.code === "DL" && i % 4 === 0 && ["WEIGHTS", "COUNTER_MACHINE", "FUEL_DISPENSER", "CAPACITY_MEASURES"].includes(typeCode);
+    const officer = lmos.find((l) => l.districtIds.includes(district.id)) ?? lmos.find((l) => l.state === st.code) ?? lmos[0];
+    const useGatc = gatcQueueSample || (st.code === "DL" && i % 4 === 0 && GATC_TYPES.includes(typeCode));
+    const fieldOfficerId = useGatc ? gatcOfficer.id : officer.id;
 
     const app = await prisma.application.create({
       data: {
@@ -510,6 +532,7 @@ async function main() {
         declarationAccepted: effectiveStatus !== "DRAFT",
         preferredDate: daysFromNow(3 + (i % 10)),
         preferredSlot: pick(["09:00-11:00", "11:00-13:00", "14:00-16:00"]),
+        preferredGatcId: useGatc ? gatcs[0].id : null,
         ruleVersionId: type.listed ? validityVersion[typeCode] : null,
         createdAt,
         statusHistory: {
@@ -551,7 +574,7 @@ async function main() {
     const assignment = await prisma.verificationAssignment.create({
       data: {
         applicationId: app.id,
-        officerId: useGatc ? gatcOfficer.id : officer.id,
+        officerId: fieldOfficerId,
         gatcId: useGatc ? gatcs[0].id : null,
         authorityType: useGatc ? "GATC" : "LMO",
         status: reached("INSPECTION_COMPLETED") ? "COMPLETED" : "ASSIGNED",
@@ -574,7 +597,7 @@ async function main() {
     const inspection = await prisma.inspection.create({
       data: {
         applicationId: app.id,
-        officerId: useGatc ? gatcOfficer.id : officer.id,
+        officerId: fieldOfficerId,
         startedAt: scheduledDate,
         completedAt: completed ? new Date(scheduledDate.getTime() + 2 * 3_600_000) : null,
         overallResult: !completed ? "PENDING" : failed ? "FAIL" : "PASS",
@@ -603,7 +626,7 @@ async function main() {
               ],
             }
           : undefined,
-        gpsRecords: { create: { latitude: lat, longitude: lng, accuracy: 8 + rand() * 20, purpose: "ARRIVAL", userId: officer.id, capturedAt: scheduledDate } },
+        gpsRecords: { create: { latitude: lat, longitude: lng, accuracy: 8 + rand() * 20, purpose: "ARRIVAL", userId: fieldOfficerId, capturedAt: scheduledDate } },
       },
     });
 
@@ -615,7 +638,7 @@ async function main() {
         stampType: "Lead / wire seal",
         stampDate: new Date(scheduledDate.getTime() + 3 * 3_600_000),
         authority: useGatc ? gatcDefs[0].name : `Legal Metrology, ${st.code}`,
-        officerId: useGatc ? gatcOfficer.id : officer.id,
+        officerId: fieldOfficerId,
       },
     });
 

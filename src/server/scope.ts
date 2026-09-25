@@ -19,10 +19,15 @@ export function applicationScope(user: SessionUser): Prisma.ApplicationWhereInpu
     case "LMO":
     case "INSPECTOR":
     case "GATC_OFFICER":
-      return { assignments: { some: { officerId: user.id } } };
+      return { assignments: { some: { officerId: user.id, status: { notIn: ["CANCELLED", "REASSIGNED"] } } } };
     case "GATC_ADMIN":
       return user.stateId
-        ? { assignments: { some: { authorityType: "GATC", gatc: { stateId: user.stateId } } } }
+        ? {
+            OR: [
+              { preferredGatc: { stateId: user.stateId }, status: { notIn: ["DRAFT", "CANCELLED"] } },
+              { assignments: { some: { authorityType: "GATC", gatc: { stateId: user.stateId } } } },
+            ],
+          }
         : NOTHING;
     default:
       return NOTHING;
@@ -62,6 +67,9 @@ export function userScope(user: SessionUser): Prisma.UserWhereInput {
   if (user.role === "SUPER_ADMIN") return { deletedAt: null };
   if (user.role === "STATE_ADMIN" && user.stateId) {
     return { deletedAt: null, stateId: user.stateId, role: { notIn: ["SUPER_ADMIN"] } };
+  }
+  if (user.role === "GATC_ADMIN" && user.stateId) {
+    return { deletedAt: null, OR: [{ id: user.id }, { stateId: user.stateId, role: "GATC_OFFICER" }] };
   }
   return { id: user.id };
 }

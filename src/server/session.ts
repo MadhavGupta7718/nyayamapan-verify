@@ -1,7 +1,9 @@
 import { cache } from "react";
+import { cookies } from "next/headers";
 import { auth } from "@/server/auth";
 import { prisma } from "@/db/client";
 import type { SessionUser } from "@/server/rbac";
+import { BROWSER_SESSION_COOKIE, isValidBrowserSession } from "@/server/browser-session";
 
 /**
  * Memoised per request so layout, page and nested server components share one session read.
@@ -12,6 +14,7 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
   const session = await auth();
   const id = session?.user?.id;
   if (!id) return null;
+  if (!isValidBrowserSession(id, (await cookies()).get(BROWSER_SESSION_COOKIE)?.value)) return null;
   const u = await prisma.user.findUnique({
     where: { id },
     select: { id: true, email: true, name: true, role: true, organizationId: true, stateId: true, status: true, deletedAt: true },

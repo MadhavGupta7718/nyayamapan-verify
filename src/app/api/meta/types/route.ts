@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/db/client";
 import { requireApiUser } from "@/server/api";
 import { SCHEDULER_ROLES } from "@/lib/permissions";
+import { openTaskCounts } from "@/services/assignment";
 
 /** Reference data for forms. Officer lists are only returned to schedulers and never include contact details. */
 export async function GET(req: NextRequest) {
@@ -16,16 +17,20 @@ export async function GET(req: NextRequest) {
       orderBy: { name: "asc" },
       select: { id: true, code: true, name: true, nameHi: true, requiredDocuments: true, requiredPhotos: true },
     }),
-    prisma.state.findMany({ orderBy: { name: "asc" }, select: { id: true, code: true, name: true, nameHi: true, districts: { select: { id: true, name: true, nameHi: true } } } }),
+    prisma.state.findMany({
+      where: { isActive: true },
+      orderBy: { name: "asc" },
+      select: { id: true, code: true, name: true, nameHi: true, districts: { where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true, nameHi: true } } },
+    }),
     canSchedule && include.includes("officers")
       ? prisma.user.findMany({
           where: {
-            role: { in: ["LMO", "INSPECTOR", "GATC_OFFICER"] },
+            role: user.role === "GATC_ADMIN" ? "GATC_OFFICER" : { in: ["LMO", "INSPECTOR"] },
             status: "ACTIVE",
             deletedAt: null,
-            ...(user.role === "SUPER_ADMIN" ? {} : { stateId: user.stateId ?? "__none__" }),
+            stateId: user.stateId ?? "__none__",
           },
-          select: { id: true, name: true, role: true, stateId: true },
+          select: { id: true, name: true, role: true, stateId: true, gatcId: true, jurisdiction: { select: { id: true } } },
           orderBy: { name: "asc" },
         })
       : Promise.resolve([]),
@@ -36,5 +41,10 @@ export async function GET(req: NextRequest) {
         })
       : Promise.resolve([]),
   ]);
+  if (officers.length) {
+    const counts = await openTaskCounts(officers.map((o) => o.id));
+    const withLoad = officers.map(({ jurisdiction, ...o }) => ({ ...o, districtIds: jurisdiction.map((d) => d.id), openTasks: counts.get(o.id) ?? 0 }));
+    return NextResponse.json({ types, states, officers: withLoad, gatcs }, { headers: { "Cache-Control": "private, no-store" } });
+  }
   return NextResponse.json({ types, states, officers, gatcs }, { headers: { "Cache-Control": "private, max-age=300" } });
 }

@@ -92,10 +92,10 @@ export function CommandPalette({ open, onOpenChange, role }: { open: boolean; on
     (i) => !q || t(`nav.${i.labelKey}`).toLowerCase().includes(q) || i.href.includes(q)
   );
   const actions = [
-    canAccessModule(role, "applications") && ["BUSINESS_USER", "SUPER_ADMIN", "STATE_ADMIN"].includes(role)
+    canAccessModule(role, "applications") && role === "BUSINESS_USER"
       ? { key: "newApp", label: t("palette.newApplication"), href: "/applications/new", icon: FilePlus2 }
       : null,
-    ["BUSINESS_USER", "SUPER_ADMIN", "STATE_ADMIN"].includes(role)
+    role === "BUSINESS_USER"
       ? { key: "newInstrument", label: t("palette.registerInstrument"), href: "/instruments/new", icon: Gauge }
       : null,
     { key: "verify", label: t("palette.verifyCertificate"), href: "/verify", icon: QrCode },
@@ -107,7 +107,7 @@ export function CommandPalette({ open, onOpenChange, role }: { open: boolean; on
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[60] animate-fade-in bg-ink-900/40 backdrop-blur-[2px]" />
-        <Dialog.Content className="fixed left-1/2 top-[12vh] z-[60] w-[calc(100vw-1.5rem)] max-w-xl -translate-x-1/2 animate-scale-in overflow-hidden rounded-xl bg-surface shadow-overlay focus:outline-none">
+        <Dialog.Content className="fixed inset-x-0 top-[12vh] z-[60] mx-auto w-[calc(100vw-1.5rem)] max-w-xl animate-scale-in overflow-hidden rounded-xl bg-surface shadow-overlay focus:outline-none">
           <Dialog.Title className="sr-only">{t("palette.title")}</Dialog.Title>
           <Dialog.Description className="sr-only">{t("palette.description")}</Dialog.Description>
           <Command shouldFilter={false} loop label={t("palette.title")}>

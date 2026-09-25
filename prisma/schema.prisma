@@ -98,6 +98,7 @@ model State {
   code      String     @unique
   name      String
   nameHi    String?
+  isActive  Boolean    @default(true)
   districts District[]
   users     User[]
   instruments Instrument[]
@@ -112,11 +113,13 @@ model District {
   id        String   @id @default(uuid())
   name      String
   nameHi    String?
+  isActive  Boolean  @default(true)
   stateId   String
   state     State    @relation(fields: [stateId], references: [id])
   instruments Instrument[]
   organizations Organization[]
   gatcProfiles GATCProfile[]
+  officers  User[]   @relation("OfficerJurisdiction")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -155,6 +158,9 @@ model User {
   organization   Organization? @relation(fields: [organizationId], references: [id])
   stateId        String?
   state          State?        @relation(fields: [stateId], references: [id])
+  jurisdiction   District[]    @relation("OfficerJurisdiction")
+  gatcId         String?
+  gatc           GATCProfile?  @relation("GATCStaff", fields: [gatcId], references: [id])
   status         AccountStatus @default(ACTIVE)
   isDemo         Boolean       @default(false)
   locale         String        @default("en")
@@ -176,6 +182,7 @@ model User {
   @@index([role])
   @@index([organizationId])
   @@index([stateId, role])
+  @@index([gatcId])
 }
 
 model License {
@@ -379,6 +386,8 @@ model Application {
   createdById       String
   createdBy         User              @relation("ApplicationCreator", fields: [createdById], references: [id])
   verificationType  VerificationType
+  preferredGatcId   String?
+  preferredGatc     GATCProfile?      @relation("PreferredGATC", fields: [preferredGatcId], references: [id])
   status            ApplicationStatus @default(DRAFT)
   preferredDate     DateTime?
   preferredSlot     String?
@@ -414,6 +423,7 @@ model ApplicationDocument {
   mimeType      String
   sizeBytes     Int
   storageKey    String
+  storageUrl    String?
   checksum      String
   version       Int            @default(1)
   status        DocumentStatus @default(UPLOADED)
@@ -458,6 +468,8 @@ model GATCProfile {
   isDemo                Boolean  @default(false)
   authorizations        GATCInstrumentAuthorization[]
   assignments           VerificationAssignment[]
+  staff                 User[]   @relation("GATCStaff")
+  preferredBy           Application[] @relation("PreferredGATC")
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 }
@@ -524,6 +536,8 @@ model Inspection {
   observations    String?
   serialConfirmed Boolean  @default(false)
   offlineSynced   Boolean  @default(true)
+  dismissedAt     DateTime?
+  dismissReason   String?
   checklists      InspectionChecklist[]
   tests           InspectionTest[]
   measurements    InspectionMeasurement[]
@@ -587,6 +601,7 @@ model InspectionPhoto {
   inspection   Inspection @relation(fields: [inspectionId], references: [id])
   category     String
   storageKey   String
+  storageUrl   String?
   checksum     String
   latitude     Float?
   longitude    Float?

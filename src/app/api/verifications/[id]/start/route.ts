@@ -15,7 +15,7 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
   const app = res.app;
 
   const existing = await prisma.inspection.findFirst({
-    where: { applicationId: app.id, completedAt: null },
+    where: { applicationId: app.id, completedAt: null, dismissedAt: null },
     orderBy: { createdAt: "desc" },
     include: { checklists: true },
   });

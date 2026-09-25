@@ -7,6 +7,7 @@ import { ArrowLeft, ArrowRight, Check, FileText, Search } from "lucide-react";
 import { Link, useRouter } from "@/i18n/routing";
 import { api, ApiError, errorMessage } from "@/lib/api-client";
 import { cn, formatDate } from "@/lib/utils";
+import { requiredDocumentsFor } from "@/lib/required-documents";
 import { Button } from "@/components/ui/button";
 import { Card, CardFooter } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
@@ -17,6 +18,8 @@ import { FormSection } from "@/components/ui/form-section";
 
 type InstrumentOption = {
   id: string;
+  stateId: string | null;
+  instrumentTypeId: string;
   code: string;
   serial: string;
   label: string;
@@ -29,7 +32,9 @@ type InstrumentOption = {
   openApplication: { id: string; applicationNumber: string } | null;
 };
 
-type Draft = { instrumentId: string; verificationType: string; preferredDate: string; preferredSlot: string; remarks: string };
+type GatcChoice = { id: string; name: string; approvalNumber: string; stateId: string | null; typeIds: string[] };
+
+type Draft = { instrumentId: string; verificationType: string; route: "LMO" | "GATC"; gatcId: string; preferredDate: string; preferredSlot: string; remarks: string };
 
 const SLOTS = ["09:00-11:00", "11:00-13:00", "14:00-16:00", "16:00-18:00"];
 const STORAGE_KEY = "draft:new-application";
@@ -41,11 +46,13 @@ function minDate() {
 
 export function ApplicationForm({
   instruments,
+  gatcs,
   initialInstrumentId,
   initialType,
   locale,
 }: {
   instruments: InstrumentOption[];
+  gatcs: GatcChoice[];
   initialInstrumentId?: string;
   initialType?: string;
   locale: string;
@@ -62,6 +69,8 @@ export function ApplicationForm({
   const [draft, setDraft] = React.useState<Draft>({
     instrumentId: initialInstrumentId && instruments.some((i) => i.id === initialInstrumentId) ? initialInstrumentId : "",
     verificationType: initialType ?? "RE_VERIFICATION",
+    route: "LMO",
+    gatcId: "",
     preferredDate: "",
     preferredSlot: SLOTS[0],
     remarks: "",
@@ -81,6 +90,9 @@ export function ApplicationForm({
   }, [draft]);
 
   const selected = instruments.find((i) => i.id === draft.instrumentId);
+  const requiredDocs = selected ? requiredDocumentsFor(selected.requiredDocuments, draft.verificationType) : [];
+  const eligibleGatcs = selected ? gatcs.filter((g) => g.stateId === selected.stateId && g.typeIds.includes(selected.instrumentTypeId)) : [];
+  const chosenGatc = draft.route === "GATC" ? eligibleGatcs.find((g) => g.id === draft.gatcId) : undefined;
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => {
     setDraft((d) => ({ ...d, [k]: v }));
     setErrors((e) => ({ ...e, [k]: undefined }));
@@ -101,6 +113,7 @@ export function ApplicationForm({
     if (s === 1) {
       if (draft.preferredDate && draft.preferredDate < minDate()) e.preferredDate = t("errors.date");
       if (draft.remarks.length > 2000) e.remarks = t("errors.remarks");
+      if (draft.route === "GATC" && !chosenGatc) e.gatcId = t("errors.gatc");
     }
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -115,6 +128,7 @@ export function ApplicationForm({
           verificationType: draft.verificationType,
           preferredDate: draft.preferredDate || undefined,
           preferredSlot: draft.preferredSlot,
+          preferredGatcId: chosenGatc?.id,
           remarks: draft.remarks.trim() || undefined,
         },
       });
@@ -220,6 +234,32 @@ export function ApplicationForm({
 
           {step === 1 ? (
             <FormSection title={t("visit.title")} description={t("visit.desc")}>
+              <Field id="route" label={t("fields.route")} hint={t(eligibleGatcs.length ? "fields.routeHint" : "fields.routeNoGatc")} className="sm:col-span-2">
+                <Select
+                  value={draft.route}
+                  onChange={(e) => {
+                    set("route", e.target.value as Draft["route"]);
+                    set("gatcId", "");
+                  }}
+                >
+                  <option value="LMO">{t("fields.routeLmo")}</option>
+                  <option value="GATC" disabled={!eligibleGatcs.length}>
+                    {t("fields.routeGatc")}
+                  </option>
+                </Select>
+              </Field>
+              {draft.route === "GATC" ? (
+                <Field id="gatcId" label={t("fields.gatc")} required error={errors.gatcId} className="sm:col-span-2">
+                  <Select value={draft.gatcId} onChange={(e) => set("gatcId", e.target.value)}>
+                    <option value="">{t("fields.selectGatc")}</option>
+                    {eligibleGatcs.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name} · {g.approvalNumber}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              ) : null}
               <Field id="preferredDate" label={t("fields.date")} hint={t("fields.dateHint")} error={errors.preferredDate}>
                 <Input type="date" min={minDate()} value={draft.preferredDate} onChange={(e) => set("preferredDate", e.target.value)} />
               </Field>
@@ -245,6 +285,7 @@ export function ApplicationForm({
                   [t("review.instrument"), `${selected.label} · ${selected.serial}`],
                   [t("review.code"), selected.code],
                   [t("fields.type"), ta(`types.${draft.verificationType}`)],
+                  [t("fields.route"), chosenGatc ? `${chosenGatc.name} · ${chosenGatc.approvalNumber}` : t("fields.routeLmo")],
                   [t("fields.date"), draft.preferredDate ? `${formatDate(draft.preferredDate, locale)} · ${draft.preferredSlot}` : t("review.noPreference")],
                   [t("fields.remarks"), draft.remarks || "—"],
                 ].map(([k, v]) => (
@@ -256,9 +297,9 @@ export function ApplicationForm({
               </dl>
               <div className="sm:col-span-2">
                 <InlineAlert tone="info" icon={<FileText />} title={t("review.docsTitle")}>
-                  {selected.requiredDocuments.length ? (
+                  {requiredDocs.length ? (
                     <ul className="mt-1 list-disc pl-5">
-                      {selected.requiredDocuments.map((d) => (
+                      {requiredDocs.map((d) => (
                         <li key={d}>{td.has(`types.${d}`) ? td(`types.${d}`) : d}</li>
                       ))}
                     </ul>

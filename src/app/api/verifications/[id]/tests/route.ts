@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/db/client";
 import { jsonError, readJson, requireApiUser, validationError } from "@/server/api";
 import { loadOpenInspection, loadVerifiableApplication } from "@/server/verification-access";
+import { geofenceResponse } from "@/server/geofence";
 import { legalRuleEngine } from "@/services/legal-rule-engine";
 import { writeAudit } from "@/server/audit";
 
@@ -28,6 +29,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (!body.success) return validationError(body.error);
   const inspection = await loadOpenInspection(id, body.data.inspectionId);
   if (!inspection || inspection.completedAt) return jsonError(409, "INSPECTION_CLOSED");
+  const outside = await geofenceResponse(inspection.id, res.app.instrument);
+  if (outside) return outside;
 
   const rules = await legalRuleEngine.getApplicableRules({
     instrumentTypeCode: res.app.instrument.instrumentType.code,

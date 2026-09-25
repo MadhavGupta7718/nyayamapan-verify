@@ -8,6 +8,7 @@ import {
   FileStack,
   Gauge,
   LayoutDashboard,
+  MapPinned,
   ScrollText,
   Settings,
   UserRound,
@@ -58,6 +59,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { module: "rules", href: "/rules", icon: BookOpenCheck, labelKey: "rules" },
       { module: "users", href: "/users", icon: Users, labelKey: "users" },
+      { module: "geography", href: "/geography", icon: MapPinned, labelKey: "geography" },
       { module: "audit", href: "/audit", icon: ScrollText, labelKey: "audit" },
     ],
   },

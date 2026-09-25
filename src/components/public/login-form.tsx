@@ -38,7 +38,9 @@ export function LoginForm({ callbackUrl, quick, quickPassword }: { callbackUrl: 
         setBusy(null);
         return;
       }
-      window.location.assign(safeCallback(callbackUrl, locale));
+      const mark = await fetch("/api/session/mark", { method: "POST", credentials: "same-origin" });
+      if (!mark.ok) throw new Error("session marker failed");
+      window.location.replace(safeCallback(callbackUrl, locale));
     } catch {
       setError(navigator.onLine ? t("errors.server") : t("errors.offline"));
       setBusy(null);

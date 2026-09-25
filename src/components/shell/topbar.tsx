@@ -170,8 +170,12 @@ export function TopBar({
               </div>
             </div>
             <DropdownSeparator />
-            <form action={signOutAction}>
-              <input type="hidden" name="locale" value={locale} />
+            <form
+              action={async () => {
+                await signOutAction();
+                window.location.replace(`/${locale}/login`);
+              }}
+            >
               <button
                 type="submit"
                 className={cn(

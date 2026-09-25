@@ -21,9 +21,9 @@ const schema = z.object({
   address: z.string().trim().max(300).optional(),
   locationLabel: z.string().trim().max(120).optional(),
   stateId: z.string().uuid(),
-  districtId: z.string().uuid().optional(),
-  latitude: z.number().min(-90).max(90).optional(),
-  longitude: z.number().min(-180).max(180).optional(),
+  districtId: z.string().uuid(),
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
   organizationId: z.string().uuid().optional(),
 });
 
@@ -61,24 +61,21 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const { user, response } = await requireApiUser(["BUSINESS_USER", "SUPER_ADMIN", "STATE_ADMIN"]);
+  const { user, response } = await requireApiUser(["BUSINESS_USER"]);
   if (response) return response;
   const body = schema.safeParse(await readJson(req));
   if (!body.success) return validationError(body.error);
 
-  let organizationId: string | null | undefined = user.organizationId;
-  if (user.role !== "BUSINESS_USER") {
-    organizationId = body.data.organizationId;
-    if (!organizationId) return jsonError(400, "ORGANIZATION_REQUIRED");
-  }
+  const organizationId = user.organizationId;
   if (!organizationId) return jsonError(400, "ORGANIZATION_REQUIRED");
-  if (user.role === "STATE_ADMIN" && body.data.stateId !== user.stateId) return jsonError(403, "OUTSIDE_JURISDICTION");
 
   const type = await prisma.instrumentType.findFirst({ where: { id: body.data.instrumentTypeId, isActive: true }, select: { id: true } });
   if (!type) return jsonError(400, "INVALID_INSTRUMENT_TYPE");
 
-  const state = await prisma.state.findUnique({ where: { id: body.data.stateId }, select: { code: true } });
+  const state = await prisma.state.findFirst({ where: { id: body.data.stateId, isActive: true }, select: { code: true } });
   if (!state) return jsonError(400, "INVALID_STATE");
+  const district = await prisma.district.findFirst({ where: { id: body.data.districtId, stateId: body.data.stateId, isActive: true }, select: { id: true } });
+  if (!district) return jsonError(400, "INVALID_DISTRICT");
 
   try {
     const instrument = await prisma.instrument.create({

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getLocale, getTranslations } from "next-intl/server";
-import { Award, CalendarClock, ClipboardList, FileText, History, MapPin, Scale, Undo2 } from "lucide-react";
+import { Award, CalendarClock, ClipboardList, FileText, History, MapPin, MapPinOff, Scale, Undo2 } from "lucide-react";
 import { prisma } from "@/db/client";
 import { Link } from "@/i18n/routing";
 import { guard } from "@/server/access";
@@ -11,6 +11,8 @@ import { availableActions } from "@/services/application-workflow";
 import { WORKFLOW_MILESTONES, milestoneIndex } from "@/lib/status";
 import { SCHEDULER_ROLES, isFieldRole } from "@/lib/permissions";
 import { formatDate, formatDateTime } from "@/lib/utils";
+import { requiredDocumentsFor } from "@/lib/required-documents";
+import { REASSIGNABLE } from "@/lib/assignment-rules";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardBody, CardHeader, DetailList } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -19,7 +21,9 @@ import { Timeline } from "@/components/ui/timeline";
 import { InlineAlert } from "@/components/ui/states";
 import { buttonVariants } from "@/components/ui/button";
 import { ApplicationActions } from "@/components/applications/application-actions";
+import { ReassignDialog } from "@/components/applications/reassign-dialog";
 import { DocumentPanel } from "@/components/applications/document-panel";
+import { PhotoGallery } from "@/components/verification/photo-gallery";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -75,6 +79,8 @@ export default async function ApplicationDetailPage({ params }: Params) {
           address: true,
           latitude: true,
           longitude: true,
+          stateId: true,
+          districtId: true,
           state: { select: { name: true, nameHi: true } },
           district: { select: { name: true, nameHi: true } },
           instrumentType: { select: { name: true, nameHi: true, requiredDocuments: true } },
@@ -82,16 +88,22 @@ export default async function ApplicationDetailPage({ params }: Params) {
       },
       documents: {
         orderBy: { createdAt: "desc" },
-        select: { id: true, documentType: true, fileName: true, sizeBytes: true, version: true, status: true, storageKey: true, createdAt: true },
+        select: { id: true, documentType: true, fileName: true, mimeType: true, sizeBytes: true, version: true, status: true, storageKey: true, createdAt: true },
       },
       statusHistory: {
         orderBy: { changedAt: "asc" },
         select: { id: true, newStatus: true, changedAt: true, reason: true, remarks: true, changedBy: { select: { name: true, role: true } } },
       },
+      preferredGatc: { select: { name: true } },
       schedules: {
-        orderBy: { scheduledDate: "desc" },
+        orderBy: { createdAt: "desc" },
         take: 1,
-        select: { scheduledDate: true, timeSlot: true, status: true, assignment: { select: { authorityType: true, officer: { select: { name: true } }, gatc: { select: { name: true } } } } },
+        select: {
+          scheduledDate: true,
+          timeSlot: true,
+          status: true,
+          assignment: { select: { authorityType: true, officerId: true, gatcId: true, officer: { select: { name: true } }, gatc: { select: { name: true, stateId: true } } } },
+        },
       },
       inspections: {
         orderBy: { createdAt: "desc" },
@@ -100,12 +112,15 @@ export default async function ApplicationDetailPage({ params }: Params) {
           id: true,
           overallResult: true,
           completedAt: true,
+          dismissedAt: true,
+          dismissReason: true,
           observations: true,
           serialConfirmed: true,
           officer: { select: { name: true } },
           checklists: { orderBy: { itemKey: "asc" }, select: { id: true, itemKey: true, itemLabel: true, result: true } },
           tests: { select: { id: true, testName: true, observedValue: true, expectedValue: true, unit: true, result: true, permissibleError: true } },
           stamping: { select: { stampIdentifier: true, stampDate: true } },
+          photos: { orderBy: { capturedAt: "asc" }, select: { id: true, category: true, storageKey: true, capturedAt: true } },
         },
       },
       certificates: { orderBy: { createdAt: "desc" }, take: 1, select: { id: true, certificateNumber: true, status: true, validUntil: true } },
@@ -120,19 +135,17 @@ export default async function ApplicationDetailPage({ params }: Params) {
   const lastReason = [...app.statusHistory].reverse().find((h) => h.reason)?.reason;
   const schedule = app.schedules[0];
   const inspection = app.inspections[0];
-  const evidenceException =
-    inspection && user.role !== "BUSINESS_USER"
-      ? await prisma.auditLog.findFirst({
-          where: { action: "EVIDENCE_EXCEPTION", entity: "Inspection", entityId: inspection.id },
-          orderBy: { createdAt: "desc" },
-          select: { reason: true, after: true },
-        })
-      : null;
-  const exceptionMissing = ((evidenceException?.after as { missing?: unknown } | null)?.missing ?? []) as string[];
   const cert = app.certificates[0];
   const typeName = locale === "hi" && app.instrument.instrumentType.nameHi ? app.instrument.instrumentType.nameHi : app.instrument.instrumentType.name;
-  const required = Array.isArray(app.instrument.instrumentType.requiredDocuments) ? (app.instrument.instrumentType.requiredDocuments as string[]) : [];
-  const canUpload = EDITABLE.includes(app.status) && (isOwner || user.role === "SUPER_ADMIN" || user.role === "STATE_ADMIN");
+  const required = requiredDocumentsFor(app.instrument.instrumentType.requiredDocuments, app.verificationType);
+  const canUpload = EDITABLE.includes(app.status) && isOwner && user.role === "BUSINESS_USER";
+  const activeAssignment = schedule?.status === "SCHEDULED" ? schedule.assignment : null;
+  const canReassign =
+    !!activeAssignment &&
+    REASSIGNABLE.includes(app.status) &&
+    (activeAssignment.authorityType === "GATC"
+      ? user.role === "GATC_ADMIN" && activeAssignment.gatc?.stateId === user.stateId
+      : user.role === "STATE_ADMIN" && app.instrument.stateId === user.stateId);
 
   const timelineItems = app.statusHistory.map((h, i) => ({
     id: h.id,
@@ -162,7 +175,18 @@ export default async function ApplicationDetailPage({ params }: Params) {
         }
         actions={
           <>
-            {app.status === "APPROVED" && SCHEDULER_ROLES.includes(user.role) ? (
+            {canReassign && activeAssignment && schedule ? (
+              <ReassignDialog
+                applicationId={app.id}
+                mode={activeAssignment.authorityType === "GATC" ? "GATC" : "LMO"}
+                currentOfficerId={activeAssignment.officerId}
+                districtId={app.instrument.districtId}
+                gatcId={activeAssignment.gatcId}
+                scheduledDate={schedule.scheduledDate.toISOString().slice(0, 10)}
+                timeSlot={schedule.timeSlot}
+              />
+            ) : null}
+            {app.status === "APPROVED" && SCHEDULER_ROLES.includes(user.role) && (user.role === "GATC_ADMIN") === !!app.preferredGatc ? (
               <Link href={`/scheduling?application=${app.id}`} className={buttonVariants()}>
                 <CalendarClock /> {t("schedule")}
               </Link>
@@ -246,10 +270,29 @@ export default async function ApplicationDetailPage({ params }: Params) {
               <CardHeader
                 icon={<ClipboardList />}
                 title={t("sections.inspection")}
-                description={inspection.completedAt ? t("inspectedBy", { name: inspection.officer?.name ?? "—", date: formatDate(inspection.completedAt, locale) }) : t("inspectionInProgress")}
-                action={<StatusBadge status={inspection.overallResult} />}
+                description={
+                  inspection.dismissedAt
+                    ? t("dismissedBy", { name: inspection.officer?.name ?? "—", date: formatDate(inspection.dismissedAt, locale) })
+                    : inspection.completedAt
+                      ? t("inspectedBy", { name: inspection.officer?.name ?? "—", date: formatDate(inspection.completedAt, locale) })
+                      : t("inspectionInProgress")
+                }
+                action={inspection.dismissedAt ? null : <StatusBadge status={inspection.overallResult} />}
               />
               <CardBody className="space-y-4">
+                {inspection.dismissedAt ? (
+                  <InlineAlert tone="danger" icon={<MapPinOff />} title={t("dismissedTitle")}>
+                    <p>{inspection.dismissReason}</p>
+                    {isOwner && app.status === "RETURNED" ? (
+                      <p className="mt-2">
+                        {t("dismissedHelp")}{" "}
+                        <Link href={`/instruments/${app.instrument.id}?edit=location`} className="font-medium underline">
+                          {t("editLocation")}
+                        </Link>
+                      </p>
+                    ) : null}
+                  </InlineAlert>
+                ) : null}
                 <ul className="grid gap-2 sm:grid-cols-2">
                   {inspection.checklists.map((c) => (
                     <li key={c.id} className="flex items-center justify-between gap-3 rounded-md bg-surface-subtle px-3 py-2 text-body-sm">
@@ -293,22 +336,18 @@ export default async function ApplicationDetailPage({ params }: Params) {
                   </div>
                 ) : null}
                 {inspection.observations ? <p className="text-body-sm text-fg-muted">{inspection.observations}</p> : null}
-                {evidenceException ? (
-                  <InlineAlert tone="warning" title={t("evidenceException")}>
-                    <ul className="list-disc pl-5">
-                      {exceptionMissing.map((m) => {
-                        const c = m.replace(/^photo:/, "");
-                        return (
-                          <li key={m}>
-                            {m === "arrival"
-                              ? tf("result.evidence.arrival")
-                              : tf("result.evidence.photo", { category: tf.has(`photoTypes.${c}`) ? tf(`photoTypes.${c}`) : c.replaceAll("_", " ") })}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                    <p className="mt-2">{evidenceException.reason}</p>
-                  </InlineAlert>
+                {inspection.photos.length ? (
+                  <div>
+                    <p className="mb-2 text-label text-fg">{t("evidencePhotos")}</p>
+                    <PhotoGallery
+                      photos={inspection.photos.map((p) => ({
+                        id: p.id,
+                        storageKey: p.storageKey,
+                        label: tf.has(`photoTypes.${p.category}`) ? tf(`photoTypes.${p.category}`) : p.category.replaceAll("_", " "),
+                        meta: formatDateTime(p.capturedAt, locale),
+                      }))}
+                    />
+                  </div>
                 ) : null}
                 {inspection.stamping ? (
                   <p className="text-body-sm text-fg-muted">
@@ -342,6 +381,7 @@ export default async function ApplicationDetailPage({ params }: Params) {
                   columns={1}
                   items={[
                     { label: t("fields.preferredDate"), value: app.preferredDate ? `${formatDate(app.preferredDate, locale)} · ${app.preferredSlot ?? ""}` : "—" },
+                    { label: t("fields.authority"), value: app.preferredGatc ? app.preferredGatc.name : t("authorityLmo") },
                     { label: t("fields.visitStatus"), value: <span className="text-fg-subtle">{t("notScheduled")}</span> },
                   ]}
                 />

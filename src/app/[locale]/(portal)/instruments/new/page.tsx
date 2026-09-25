@@ -11,23 +11,15 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function NewInstrumentPage() {
   const user = await requireUser();
-  if (!["BUSINESS_USER", "SUPER_ADMIN", "STATE_ADMIN"].includes(user.role)) return Forbidden();
+  if (user.role !== "BUSINESS_USER") return Forbidden();
   const [t, locale] = await Promise.all([getTranslations("instrumentForm"), getLocale()]);
-  const [types, states, orgs] = await Promise.all([
+  const [types, states] = await Promise.all([
     prisma.instrumentType.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true, nameHi: true, category: true } }),
     prisma.state.findMany({
-      where: user.role === "STATE_ADMIN" ? { id: user.stateId ?? "__none__" } : {},
+      where: { isActive: true },
       orderBy: { name: "asc" },
-      select: { id: true, name: true, nameHi: true, districts: { orderBy: { name: "asc" }, select: { id: true, name: true, nameHi: true } } },
+      select: { id: true, name: true, nameHi: true, districts: { where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true, nameHi: true } } },
     }),
-    user.role === "BUSINESS_USER"
-      ? Promise.resolve([])
-      : prisma.organization.findMany({
-          where: { deletedAt: null, ...(user.role === "STATE_ADMIN" ? { stateId: user.stateId ?? "__none__" } : {}) },
-          orderBy: { name: "asc" },
-          take: 500,
-          select: { id: true, name: true },
-        }),
   ]);
   const own = user.organizationId
     ? await prisma.organization.findUnique({ where: { id: user.organizationId }, select: { stateId: true, districtId: true, address: true } })
@@ -40,7 +32,7 @@ export default async function NewInstrumentPage() {
       <InstrumentForm
         types={types.map((x) => ({ id: x.id, label: tn(x) }))}
         states={states.map((s) => ({ id: s.id, label: tn(s), districts: s.districts.map((d) => ({ id: d.id, label: tn(d) })) }))}
-        organizations={orgs.map((o) => ({ id: o.id, label: o.name }))}
+        organizations={[]}
         defaults={{ stateId: own?.stateId ?? user.stateId ?? "", districtId: own?.districtId ?? "", address: own?.address ?? "" }}
       />
     </>

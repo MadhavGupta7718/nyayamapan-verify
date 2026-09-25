@@ -7,6 +7,7 @@ import { useRouter } from "@/i18n/routing";
 import { api, ApiError } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { QrScanButton } from "./qr-scanner";
 
 export function CertificateLookup({ size = "md", className }: { size?: "md" | "lg"; className?: string }) {
   const t = useTranslations("verify.lookup");
@@ -58,13 +59,16 @@ export function CertificateLookup({ size = "md", className }: { size?: "md" | "l
           {t("submit")} <ArrowRight />
         </Button>
       </div>
-      {error ? (
-        <p id="cert-lookup-error" role="alert" className="mt-2 text-body-sm font-medium text-danger-700">
-          {error}
-        </p>
-      ) : (
-        <p className="mt-2 text-caption text-fg-subtle">{t("hint")}</p>
-      )}
+      <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        {error ? (
+          <p id="cert-lookup-error" role="alert" className="text-body-sm font-medium text-danger-700">
+            {error}
+          </p>
+        ) : (
+          <p className="text-caption text-fg-subtle">{t("hint")}</p>
+        )}
+        <QrScanButton size="md" className="shrink-0 self-start" />
+      </div>
     </form>
   );
 }

@@ -7,6 +7,7 @@ import { Link } from "@/i18n/routing";
 import { guard } from "@/server/access";
 import { applicationScope, scheduleScope } from "@/server/scope";
 import { buildHref } from "@/lib/list-params";
+import { SCHEDULER_ROLES } from "@/lib/permissions";
 import { cn, daysUntil, formatDate } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardHeader } from "@/components/ui/card";
@@ -23,13 +24,13 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 const DAY = 86_400_000;
-const ASSIGNERS = ["SUPER_ADMIN", "STATE_ADMIN", "GATC_ADMIN"];
 
 export default async function SchedulingPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const { user, denied } = await guard("scheduling");
   if (denied) return denied;
   const [t, locale, sp] = await Promise.all([getTranslations("scheduling"), getLocale(), searchParams]);
-  const canAssign = ASSIGNERS.includes(user.role);
+  const canAssign = SCHEDULER_ROLES.includes(user.role);
+  const gatcMode = user.role === "GATC_ADMIN";
   const view = sp.view === "calendar" || sp.view === "map" ? sp.view : canAssign ? "queue" : "calendar";
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -38,8 +39,9 @@ export default async function SchedulingPage({ searchParams }: { searchParams: P
 
   const queueWhere: Prisma.ApplicationWhereInput = {
     AND: [
-      user.role === "GATC_ADMIN" ? { instrument: { stateId: user.stateId ?? "__none__" } } : applicationScope(user),
+      applicationScope(user),
       { status: "APPROVED" },
+      gatcMode ? { preferredGatc: { stateId: user.stateId ?? "__none__" } } : { instrument: { stateId: user.stateId ?? "__none__" }, preferredGatcId: null },
       q ? { OR: [{ applicationNumber: { contains: q, mode: "insensitive" } }, { organization: { name: { contains: q, mode: "insensitive" } } }] } : {},
     ],
   };
@@ -63,10 +65,10 @@ export default async function SchedulingPage({ searchParams }: { searchParams: P
             preferredSlot: true,
             updatedAt: true,
             organization: { select: { name: true } },
+            preferredGatc: { select: { id: true, name: true } },
             instrument: {
               select: {
-                stateId: true,
-                instrumentTypeId: true,
+                districtId: true,
                 latitude: true,
                 longitude: true,
                 address: true,
@@ -265,13 +267,16 @@ export default async function SchedulingPage({ searchParams }: { searchParams: P
 
       {canAssign ? (
         <ScheduleDrawer
+          mode={gatcMode ? "GATC" : "LMO"}
           items={queue.map((a) => ({
             id: a.id,
             number: a.applicationNumber,
             organization: a.organization.name,
             instrumentType: tn(a.instrument.instrumentType),
-            instrumentTypeId: a.instrument.instrumentTypeId,
-            stateId: a.instrument.stateId,
+            districtId: a.instrument.districtId,
+            districtName: a.instrument.district?.name ?? null,
+            gatcId: a.preferredGatc?.id ?? null,
+            gatcName: a.preferredGatc?.name ?? null,
             preferredDate: a.preferredDate?.toISOString().slice(0, 10) ?? null,
             preferredSlot: a.preferredSlot,
           }))}

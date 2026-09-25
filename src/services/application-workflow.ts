@@ -2,6 +2,7 @@ import { prisma } from "@/db/client";
 import type { ApplicationStatus, Role } from "@prisma/client";
 import { writeAudit } from "@/server/audit";
 import { notifyUser } from "@/services/notifications";
+import { requiredDocumentsFor } from "@/lib/required-documents";
 
 export const ALLOWED: Partial<Record<ApplicationStatus, ApplicationStatus[]>> = {
   DRAFT: ["SUBMITTED", "CANCELLED"],
@@ -11,8 +12,8 @@ export const ALLOWED: Partial<Record<ApplicationStatus, ApplicationStatus[]>> = 
   RETURNED: ["SUBMITTED", "CANCELLED"],
   REJECTED: [],
   SCHEDULED: ["ASSIGNED", "CANCELLED"],
-  ASSIGNED: ["FIELD_VERIFICATION", "CANCELLED"],
-  FIELD_VERIFICATION: ["INSPECTION_COMPLETED", "CANCELLED"],
+  ASSIGNED: ["FIELD_VERIFICATION", "RETURNED", "CANCELLED"],
+  FIELD_VERIFICATION: ["INSPECTION_COMPLETED", "RETURNED", "CANCELLED"],
   INSPECTION_COMPLETED: ["PASS", "FAIL"],
   PASS: ["STAMPING"],
   FAIL: ["CANCELLED"],
@@ -106,20 +107,22 @@ export async function missingRequiredDocuments(applicationId: string) {
   const app = await prisma.application.findUnique({
     where: { id: applicationId },
     select: {
+      verificationType: true,
       instrument: { select: { instrumentType: { select: { requiredDocuments: true } } } },
       documents: { where: { status: { notIn: ["SUPERSEDED", "REJECTED"] } }, select: { documentType: true } },
     },
   });
   if (!app) return [];
-  const required = Array.isArray(app.instrument.instrumentType.requiredDocuments) ? (app.instrument.instrumentType.requiredDocuments as string[]) : [];
+  const required = requiredDocumentsFor(app.instrument.instrumentType.requiredDocuments, app.verificationType);
   const have = new Set(app.documents.map((d) => d.documentType));
   return required.filter((r) => !have.has(r));
 }
 
 type ActionDef = { from: ApplicationStatus[]; to: ApplicationStatus; roles: Role[]; requiresReason?: boolean; ownerOnly?: boolean };
 
-const REVIEWERS: Role[] = ["SUPER_ADMIN", "STATE_ADMIN"];
-const APPLICANTS: Role[] = ["BUSINESS_USER", "SUPER_ADMIN", "STATE_ADMIN"];
+/** Document review is the State Admin's (Controller's) decision; the Super Admin oversees but does not decide. */
+const REVIEWERS: Role[] = ["STATE_ADMIN"];
+const APPLICANTS: Role[] = ["BUSINESS_USER"];
 
 /** User-facing actions on an application, each bound to the roles allowed to perform it. */
 export const APPLICATION_ACTIONS = {

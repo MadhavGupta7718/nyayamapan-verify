@@ -19,8 +19,8 @@ export function CardHeader({
   className?: string;
 }) {
   return (
-    <div className={cn("flex items-start justify-between gap-4 border-b border-line px-5 py-4", className)}>
-      <div className="flex min-w-0 items-start gap-3">
+    <div className={cn("flex flex-wrap items-start justify-between gap-x-4 gap-y-3 border-b border-line px-5 py-4", className)}>
+      <div className="flex min-w-0 flex-1 basis-[14rem] items-start gap-3">
         {icon ? (
           <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-md bg-brand-50 text-brand-700 [&_svg]:size-4">
             {icon}
@@ -31,7 +31,7 @@ export function CardHeader({
           {description ? <p className="mt-0.5 text-body-sm text-fg-subtle">{description}</p> : null}
         </div>
       </div>
-      {action ? <div className="shrink-0">{action}</div> : null}
+      {action ? <div className="max-w-full shrink-0">{action}</div> : null}
     </div>
   );
 }

@@ -48,6 +48,37 @@ export async function readLocalFile(key: string) {
   return readFile(full);
 }
 
+/** Public hostname of the connected Blob store, derived from BLOB_STORE_ID or the read-write token. */
+function blobHost() {
+  const fromId = process.env.BLOB_STORE_ID?.replace(/^store_/, "");
+  const fromToken = process.env.BLOB_READ_WRITE_TOKEN?.match(/^vercel_blob_rw_([A-Za-z0-9]+)_/)?.[1];
+  const id = (fromId || fromToken)?.toLowerCase();
+  return id ? `https://${id}.public.blob.vercel-storage.com` : null;
+}
+
+function isBlobUrl(url: string) {
+  try {
+    return new URL(url).hostname.endsWith(".blob.vercel-storage.com");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Reads a stored file for the authorised download route. Blob uploads are fetched server-side
+ * (records created before `storageUrl` existed are resolved from the store hostname); anything
+ * else comes from local storage.
+ */
+export async function readStoredFile(key: string, storageUrl?: string | null): Promise<Buffer> {
+  const url = storageUrl && isBlobUrl(storageUrl) ? storageUrl : process.env.BLOB_READ_WRITE_TOKEN && blobHost() ? `${blobHost()}/${safeKey(key)}` : null;
+  if (url) {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`Blob fetch failed: ${res.status}`);
+    return Buffer.from(await res.arrayBuffer());
+  }
+  return readLocalFile(key);
+}
+
 export async function deleteFile(key: string, url?: string) {
   if (process.env.BLOB_READ_WRITE_TOKEN && url) {
     await del(url, { token: process.env.BLOB_READ_WRITE_TOKEN });

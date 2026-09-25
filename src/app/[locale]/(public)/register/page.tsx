@@ -18,8 +18,9 @@ export default async function RegisterPage({ params }: { params: Promise<{ local
   const [t, states] = await Promise.all([
     getTranslations("register"),
     prisma.state.findMany({
+      where: { isActive: true },
       orderBy: { name: "asc" },
-      select: { id: true, name: true, nameHi: true, districts: { orderBy: { name: "asc" }, select: { id: true, name: true, nameHi: true } } },
+      select: { id: true, name: true, nameHi: true, districts: { where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true, nameHi: true } } },
     }),
   ]);
   const label = (x: { name: string; nameHi: string | null }) => (locale === "hi" && x.nameHi ? x.nameHi : x.name);

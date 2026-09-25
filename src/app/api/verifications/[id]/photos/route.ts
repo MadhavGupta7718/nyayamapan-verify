@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/db/client";
 import { jsonError, requireApiUser } from "@/server/api";
 import { loadOpenInspection, loadVerifiableApplication } from "@/server/verification-access";
+import { geofenceResponse } from "@/server/geofence";
+import { LOCATION_NOT_FOUND_CATEGORY } from "@/lib/evidence";
 import { MAX_UPLOAD_BYTES, checksumBuffer, sniffMime, storeFile } from "@/services/storage";
 import { getMalwareScanner } from "@/services/malware-scanner";
 
@@ -23,9 +25,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const lng = form.get("longitude") ? Number(form.get("longitude")) : undefined;
 
   if (!(file instanceof File)) return jsonError(400, "FILE_REQUIRED");
-  if (!CATEGORY_RE.test(category)) return jsonError(400, "INVALID_CATEGORY");
+  if (!CATEGORY_RE.test(category) || category === LOCATION_NOT_FOUND_CATEGORY) return jsonError(400, "INVALID_CATEGORY");
   const inspection = await loadOpenInspection(id, inspectionId);
   if (!inspection || inspection.completedAt) return jsonError(409, "INSPECTION_CLOSED");
+  const outside = await geofenceResponse(inspection.id, res.app.instrument);
+  if (outside) return outside;
   if (file.size > MAX_UPLOAD_BYTES) return jsonError(413, "FILE_TOO_LARGE");
 
   const buf = Buffer.from(await file.arrayBuffer());
@@ -43,6 +47,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       inspectionId: inspection.id,
       category,
       storageKey: stored.key,
+      storageUrl: stored.provider === "vercel-blob" ? stored.url : null,
       checksum,
       latitude: Number.isFinite(lat) ? lat : undefined,
       longitude: Number.isFinite(lng) ? lng : undefined,

@@ -10,7 +10,7 @@ const DOC_TYPE_RE = /^[a-z_]{2,40}$/;
 const EDITABLE = ["DRAFT", "RETURNED", "SUBMITTED", "DOCUMENT_REVIEW"];
 
 export async function POST(req: NextRequest) {
-  const { user, response } = await requireApiUser(["BUSINESS_USER", "SUPER_ADMIN", "STATE_ADMIN"]);
+  const { user, response } = await requireApiUser(["BUSINESS_USER"]);
   if (response) return response;
 
   const form = await req.formData();
@@ -55,6 +55,7 @@ export async function POST(req: NextRequest) {
         mimeType: mime,
         sizeBytes: file.size,
         storageKey: stored.key,
+        storageUrl: stored.provider === "vercel-blob" ? stored.url : null,
         checksum,
         version: (previous?.version ?? 0) + 1,
         uploadedById: user.id,

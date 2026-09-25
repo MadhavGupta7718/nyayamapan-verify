@@ -102,6 +102,28 @@ $env:NEXT_DIST_DIR=".next-verify"; npx next start -p 3001
 npm run smoke
 ```
 
+## Roles and workflow
+
+User hierarchy, enforced on the server:
+- **Super Admin** creates and edits State Admins, GATC Admins, Auditors and Inspectors. They manage states and districts (**Geography**) and can see every user, with state and district filters. They do not review, assign or verify.
+- **State Admin** creates LMOs for their state. They review applications and documents, and can reassign field work in their state.
+- **GATC Admin** creates GATC Officers for their centre and assigns GATC-route applications to them.
+- Only the officer assigned to an application (LMO, Inspector or GATC Officer) can carry out its field verification.
+
+Assignment:
+- When a State Admin approves an application, it is assigned automatically to the active LMO whose jurisdiction covers the instrument's district and who has the fewest open tasks. The visit goes on the applicant's preferred date, or the next working day (`OFFICER_AUTO_ASSIGNED`).
+- If no LMO covers the district, the State Admins are notified and schedule it from **Scheduling**.
+- If the applicant chose a Government Approved Test Centre when applying, the GATC Admins for that state are notified instead, and they assign one of the centre's officers.
+- A State Admin (LMO route) or GATC Admin (GATC route) can reassign a scheduled or assigned visit, giving a reason (`OFFICER_REASSIGNED`). Both officers are notified.
+
+Field verification:
+- The officer must record an arrival GPS fix within 1 km of the instrument's registered location before any later step unlocks. The server enforces this on every step.
+- If the site cannot be found, "Location not found" (with a photo and reason) returns the application to the applicant and notifies the State Admins. The applicant can then correct the instrument location and resubmit.
+
+Sessions end on sign-out or when the browser is closed.
+
+Additional audit events include `USER_UPDATED`, `STATE_*`, `DISTRICT_*`, `OFFICER_AUTO_ASSIGNED`, `OFFICER_REASSIGNED`, `VERIFICATION_DISMISSED` and `INSTRUMENT_LOCATION_UPDATED`.
+
 ## Legal rule configuration
 
 - Super Admin → **Legal rules**. The lifecycle is draft → approve → activate → retire. History is never overwritten.
@@ -118,7 +140,7 @@ npm run smoke
 
 1. Create a Neon database and a Vercel project.
 2. Set the environment variables above, with real secrets.
-3. Run `npx prisma migrate deploy`, then seed reference data.
+3. Run `npx prisma migrate deploy`, then seed reference data. `npm run db:geo` adds any missing states, union territories and districts from `prisma/data/india-geography.ts` without deleting anything, so it is safe to re-run on a live database.
 4. The cron routes are defined in `vercel.json`.
 
 ## Before production use
@@ -126,7 +148,8 @@ npm run smoke
 - Replace the certificate signer with a DSC/HSM-backed implementation. Also connect real payment, SMS, email and malware-scanning adapters, and DigiLocker if it is in scope.
 - Host on infrastructure approved by the adopting authority.
 - Configure the authoritative MPE, fee and stamp values in the rules engine.
-- Review audit entries of type `EVIDENCE_EXCEPTION`. These are results recorded without arrival GPS or the required photos, each with the officer's written reason (see SEC-05 in [SECURITY_AUDIT.md](SECURITY_AUDIT.md)).
+- Review `VERIFICATION_DISMISSED` audit entries ("Location not found", each with a photo and the officer's reason) and the `INSTRUMENT_LOCATION_UPDATED` corrections that follow them (see SEC-05 in [SECURITY_AUDIT.md](SECURITY_AUDIT.md)).
+- Instruments registered before coordinates became mandatory cannot be field-verified until the applicant adds their location.
 - Re-seed (or backfill) existing databases. Seeds created before the FN-10 fix lack the model approval document, so those applications can't be approved until it is uploaded.
 
 ## Screenshots

@@ -19,27 +19,36 @@ const CLOSED = ["ACTIVE", "REJECTED", "CANCELLED", "EXPIRED", "REVOKED", "FAIL"]
 
 export default async function NewApplicationPage({ searchParams }: { searchParams: Promise<{ instrument?: string; type?: string }> }) {
   const user = await requireUser();
-  if (!["BUSINESS_USER", "SUPER_ADMIN", "STATE_ADMIN"].includes(user.role)) return Forbidden();
+  if (user.role !== "BUSINESS_USER") return Forbidden();
   const [t, locale, sp] = await Promise.all([getTranslations("applyForm"), getLocale(), searchParams]);
 
-  const instruments = await prisma.instrument.findMany({
-    where: instrumentScope(user),
-    orderBy: { createdAt: "desc" },
-    take: 200,
-    select: {
-      id: true,
-      instrumentCode: true,
-      serialNumber: true,
-      manufacturer: true,
-      modelName: true,
-      locationLabel: true,
-      nextDueDate: true,
-      verificationStatus: true,
-      organization: { select: { name: true } },
-      instrumentType: { select: { name: true, nameHi: true, requiredDocuments: true } },
-      applications: { where: { status: { notIn: [...CLOSED] } }, take: 1, select: { id: true, applicationNumber: true } },
-    },
-  });
+  const [instruments, gatcs] = await Promise.all([
+    prisma.instrument.findMany({
+      where: instrumentScope(user),
+      orderBy: { createdAt: "desc" },
+      take: 200,
+      select: {
+        id: true,
+        stateId: true,
+        instrumentTypeId: true,
+        instrumentCode: true,
+        serialNumber: true,
+        manufacturer: true,
+        modelName: true,
+        locationLabel: true,
+        nextDueDate: true,
+        verificationStatus: true,
+        organization: { select: { name: true } },
+        instrumentType: { select: { name: true, nameHi: true, requiredDocuments: true } },
+        applications: { where: { status: { notIn: [...CLOSED] } }, take: 1, select: { id: true, applicationNumber: true } },
+      },
+    }),
+    prisma.gATCProfile.findMany({
+      where: { approvalStatus: "APPROVED", OR: [{ approvalEnd: null }, { approvalEnd: { gte: new Date() } }] },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, approvalNumber: true, stateId: true, authorizations: { select: { instrumentTypeId: true } } },
+    }),
+  ]);
 
   return (
     <>
@@ -62,8 +71,11 @@ export default async function NewApplicationPage({ searchParams }: { searchParam
           locale={locale}
           initialInstrumentId={sp.instrument}
           initialType={sp.type === "RE_VERIFICATION" || sp.type === "INITIAL_VERIFICATION" ? sp.type : undefined}
+          gatcs={gatcs.map((g) => ({ id: g.id, name: g.name, approvalNumber: g.approvalNumber, stateId: g.stateId, typeIds: g.authorizations.map((a) => a.instrumentTypeId) }))}
           instruments={instruments.map((i) => ({
             id: i.id,
+            stateId: i.stateId,
+            instrumentTypeId: i.instrumentTypeId,
             code: i.instrumentCode,
             serial: i.serialNumber,
             label: `${locale === "hi" && i.instrumentType.nameHi ? i.instrumentType.nameHi : i.instrumentType.name}`,

@@ -21,6 +21,8 @@ const META: Record<Action, { icon: React.ElementType; variant: "primary" | "seco
   cancel: { icon: Ban, variant: "secondary", reason: true, tone: "danger" },
 };
 
+type AutoAssignResult = { assigned: true; officerName: string; scheduledDate: string } | { assigned: false; reason: "GATC_ROUTE" | "NO_DISTRICT" | "NO_OFFICER" | "NOT_APPROVED" };
+
 const ORDER: Action[] = ["cancel", "return", "reject", "startReview", "approve", "submit"];
 
 export function ApplicationActions({
@@ -48,11 +50,14 @@ export function ApplicationActions({
     if (!open) return;
     setLoading(true);
     try {
-      await api(`/api/applications/${applicationId}`, {
+      const res = await api<{ data: { assignment?: AutoAssignResult } }>(`/api/applications/${applicationId}`, {
         method: "PATCH",
         body: { action: open, reason: reason.trim() || undefined, declarationAccepted: open === "submit" ? declared || undefined : undefined },
       });
-      toast.success(t(`${open}.done`));
+      const assignment = res?.data?.assignment;
+      if (assignment?.assigned) toast.success(t("approve.autoAssigned", { name: assignment.officerName, date: assignment.scheduledDate }));
+      else if (assignment) toast.success(t(`approve.pending.${assignment.reason}`));
+      else toast.success(t(`${open}.done`));
       setOpen(null);
       setReason("");
       router.refresh();

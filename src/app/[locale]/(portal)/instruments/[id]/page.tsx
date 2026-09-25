@@ -13,6 +13,8 @@ import { Card, CardBody, CardHeader, DetailList } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState, InlineAlert } from "@/components/ui/states";
 import { buttonVariants } from "@/components/ui/button";
+import { LocationEditDrawer } from "@/components/instruments/location-edit";
+import { OPEN_APPLICATION_STATUSES, canEditLocation } from "@/lib/instrument-location";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -24,12 +26,12 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   return { title: i.instrumentCode };
 }
 
-const OPEN = ["DRAFT", "SUBMITTED", "DOCUMENT_REVIEW", "APPROVED", "RETURNED", "SCHEDULED", "ASSIGNED", "FIELD_VERIFICATION", "INSPECTION_COMPLETED", "PASS", "STAMPING", "CERTIFICATE_GENERATED", "CERTIFICATE_ISSUED"];
+const OPEN: string[] = [...OPEN_APPLICATION_STATUSES];
 
-export default async function InstrumentDetailPage({ params }: Params) {
+export default async function InstrumentDetailPage({ params, searchParams }: Params & { searchParams: Promise<{ edit?: string }> }) {
   const { user, denied } = await guard("instruments");
   if (denied) return denied;
-  const { id } = await params;
+  const [{ id }, sp] = await Promise.all([params, searchParams]);
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
   const [t, locale] = await Promise.all([getTranslations("instruments"), getLocale()]);
 
@@ -49,6 +51,8 @@ export default async function InstrumentDetailPage({ params }: Params) {
       address: true,
       latitude: true,
       longitude: true,
+      stateId: true,
+      districtId: true,
       verificationStatus: true,
       lastVerificationAt: true,
       nextDueDate: true,
@@ -78,8 +82,12 @@ export default async function InstrumentDetailPage({ params }: Params) {
 
   const tn = (x: { name: string; nameHi: string | null } | null) => (x ? (locale === "hi" && x.nameHi ? x.nameHi : x.name) : null);
   const open = apps.find((a) => OPEN.includes(a.status));
-  const canApply = ["BUSINESS_USER", "SUPER_ADMIN", "STATE_ADMIN"].includes(user.role) && !open;
+  const canApply = user.role === "BUSINESS_USER" && !open;
   const due = daysUntil(inst.nextDueDate);
+  const canMove = user.role === "BUSINESS_USER" && canEditLocation(apps.filter((a) => OPEN.includes(a.status)).map((a) => a.status));
+  const districts = canMove
+    ? await prisma.district.findMany({ where: { stateId: inst.stateId ?? "__none__", isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true, nameHi: true } })
+    : [];
 
   return (
     <>
@@ -204,8 +212,32 @@ export default async function InstrumentDetailPage({ params }: Params) {
             </CardBody>
           </Card>
           <Card>
-            <CardHeader icon={<MapPin />} title={t("sections.location")} />
+            <CardHeader
+              icon={<MapPin />}
+              title={t("sections.location")}
+              action={
+                canMove ? (
+                  <LocationEditDrawer
+                    instrumentId={inst.id}
+                    defaultOpen={sp.edit === "location"}
+                    districts={districts.map((d) => ({ id: d.id, label: tn(d) ?? d.name }))}
+                    initial={{
+                      locationLabel: inst.locationLabel ?? "",
+                      address: inst.address ?? "",
+                      districtId: inst.districtId ?? "",
+                      latitude: inst.latitude != null ? String(inst.latitude) : "",
+                      longitude: inst.longitude != null ? String(inst.longitude) : "",
+                    }}
+                  />
+                ) : null
+              }
+            />
             <CardBody>
+              {inst.latitude == null ? (
+                <InlineAlert tone="warning" className="mb-4">
+                  {t("noCoordinates")}
+                </InlineAlert>
+              ) : null}
               <DetailList
                 columns={1}
                 items={[

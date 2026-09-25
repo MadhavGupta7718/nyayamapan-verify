@@ -17,43 +17,74 @@ export type QueueItem = {
   number: string;
   organization: string;
   instrumentType: string;
-  instrumentTypeId: string;
-  stateId: string | null;
+  districtId: string | null;
+  districtName: string | null;
+  gatcId: string | null;
+  gatcName: string | null;
   preferredDate: string | null;
   preferredSlot: string | null;
 };
-type Officer = { id: string; name: string; role: string; stateId: string | null };
-type Gatc = { id: string; name: string; approvalNumber: string; stateId: string | null; authorizations: { instrumentTypeId: string }[] };
+export type AssignableOfficer = { id: string; name: string; role: string; gatcId: string | null; districtIds: string[]; openTasks: number };
 type Conflict = { code: string; message: string };
 
-const SLOTS = ["09:00-11:00", "11:00-13:00", "14:00-16:00", "16:00-18:00"];
+export const SLOTS = ["09:00-11:00", "11:00-13:00", "14:00-16:00", "16:00-18:00"];
 
-/** Assigns an approved application to an officer/GATC. Conflicts must be resolved or explicitly overridden with a recorded reason. */
-export function ScheduleDrawer({ items }: { items: QueueItem[] }) {
+/** Officers eligible for an item, split into those covering its district (or its GATC) and the rest, least loaded first. */
+export function groupOfficers(officers: AssignableOfficer[], item: Pick<QueueItem, "districtId" | "gatcId">, mode: "LMO" | "GATC") {
+  const byLoad = [...officers].sort((a, b) => a.openTasks - b.openTasks || a.name.localeCompare(b.name));
+  if (mode === "GATC") return { primary: byLoad.filter((o) => o.gatcId === item.gatcId), other: [] as AssignableOfficer[] };
+  const covers = (o: AssignableOfficer) => !!item.districtId && o.districtIds.includes(item.districtId);
+  return { primary: byLoad.filter(covers), other: byLoad.filter((o) => !covers(o)) };
+}
+
+export function useAssignableOfficers(enabled: boolean) {
+  const te = useTranslations("apiErrors");
+  const [officers, setOfficers] = React.useState<AssignableOfficer[] | null>(null);
+  React.useEffect(() => {
+    if (!enabled || officers) return;
+    api<{ officers: AssignableOfficer[] }>("/api/meta/types?include=officers")
+      .then((r) => setOfficers(r.officers))
+      .catch((e) => toast.error(errorMessage(e, te)));
+  }, [enabled, officers, te]);
+  return officers;
+}
+
+export function OfficerOptions({ primary, other, primaryLabel, otherLabel }: { primary: AssignableOfficer[]; other: AssignableOfficer[]; primaryLabel: string; otherLabel: string }) {
+  const tr = useTranslations("roles");
+  const t = useTranslations("scheduling.drawer");
+  const option = (o: AssignableOfficer) => (
+    <option key={o.id} value={o.id}>
+      {o.name} · {tr(o.role)} · {t("openTasks", { count: o.openTasks })}
+    </option>
+  );
+  return (
+    <>
+      {primary.length ? <optgroup label={primaryLabel}>{primary.map(option)}</optgroup> : null}
+      {other.length ? <optgroup label={otherLabel}>{other.map(option)}</optgroup> : null}
+    </>
+  );
+}
+
+/**
+ * Manual assignment for approved applications that weren't assigned automatically. State Admins pick an
+ * LMO or Inspector of their state; GATC Admins pick an officer of the centre the applicant chose.
+ * Conflicts must be resolved or explicitly overridden with a recorded reason.
+ */
+export function ScheduleDrawer({ items, mode }: { items: QueueItem[]; mode: "LMO" | "GATC" }) {
   const t = useTranslations("scheduling.drawer");
   const te = useTranslations("apiErrors");
-  const tr = useTranslations("roles");
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
   const selectedId = sp.get("application");
   const item = items.find((i) => i.id === selectedId) ?? null;
-  const [meta, setMeta] = React.useState<{ officers: Officer[]; gatcs: Gatc[] } | null>(null);
-  const [authority, setAuthority] = React.useState<"LMO" | "GATC">("LMO");
+  const officers = useAssignableOfficers(!!item);
   const [officerId, setOfficerId] = React.useState("");
-  const [gatcId, setGatcId] = React.useState("");
   const [date, setDate] = React.useState("");
   const [slot, setSlot] = React.useState(SLOTS[0]);
   const [conflicts, setConflicts] = React.useState<Conflict[]>([]);
   const [override, setOverride] = React.useState("");
   const [saving, setSaving] = React.useState(false);
-
-  React.useEffect(() => {
-    if (!item || meta) return;
-    api<{ officers: Officer[]; gatcs: Gatc[] }>("/api/meta/types?include=officers,gatcs")
-      .then(setMeta)
-      .catch((e) => toast.error(errorMessage(e, te)));
-  }, [item, meta, te]);
 
   React.useEffect(() => {
     if (!item) return;
@@ -63,8 +94,6 @@ export function ScheduleDrawer({ items }: { items: QueueItem[] }) {
     setConflicts([]);
     setOverride("");
     setOfficerId("");
-    setGatcId("");
-    setAuthority("LMO");
   }, [item]);
 
   function close() {
@@ -74,28 +103,15 @@ export function ScheduleDrawer({ items }: { items: QueueItem[] }) {
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }
 
-  const gatcs = (meta?.gatcs ?? []).filter((g) => (!item?.stateId || g.stateId === item.stateId) && g.authorizations.some((a) => a.instrumentTypeId === item?.instrumentTypeId));
-  const officers = (meta?.officers ?? []).filter((o) =>
-    authority === "GATC" ? o.role === "GATC_OFFICER" : o.role === "LMO" || o.role === "INSPECTOR"
-  );
-  const sameState = officers.filter((o) => !item?.stateId || o.stateId === item.stateId);
-  const otherState = officers.filter((o) => item?.stateId && o.stateId !== item.stateId);
-  const valid = !!officerId && !!date && (authority === "LMO" || !!gatcId) && (!conflicts.length || override.trim().length >= 10);
+  const { primary, other } = item && officers ? groupOfficers(officers, item, mode) : { primary: [], other: [] };
+  const valid = !!officerId && !!date && (!conflicts.length || override.trim().length >= 10);
 
   async function submit() {
     if (!item) return;
     setSaving(true);
     try {
       await api("/api/schedules", {
-        body: {
-          applicationId: item.id,
-          authorityType: authority,
-          officerId,
-          gatcId: authority === "GATC" ? gatcId : undefined,
-          scheduledDate: date,
-          timeSlot: slot,
-          overrideReason: conflicts.length ? override.trim() : undefined,
-        },
+        body: { applicationId: item.id, officerId, scheduledDate: date, timeSlot: slot, overrideReason: conflicts.length ? override.trim() : undefined },
       });
       toast.success(t("scheduled", { number: item.number }));
       close();
@@ -130,64 +146,25 @@ export function ScheduleDrawer({ items }: { items: QueueItem[] }) {
         <div className="space-y-5">
           <div className="rounded-lg bg-surface-subtle p-3 text-body-sm">
             <p className="font-medium text-fg">{item.instrumentType}</p>
+            <p className="text-fg-subtle">{mode === "GATC" ? t("viaGatc", { name: item.gatcName ?? "—" }) : t("inDistrict", { name: item.districtName ?? "—" })}</p>
             <p className="text-fg-subtle">{item.preferredDate ? t("preferred", { date: item.preferredDate, slot: item.preferredSlot ?? "" }) : t("noPreference")}</p>
           </div>
-          <Field id="authority" label={t("authority")} required>
-            <Select
-              value={authority}
-              onChange={(e) => {
-                setAuthority(e.target.value as "LMO" | "GATC");
-                setOfficerId("");
-                setConflicts([]);
-              }}
-            >
-              <option value="LMO">{t("authorityLmo")}</option>
-              <option value="GATC" disabled={!gatcs.length}>
-                {t("authorityGatc")}
-                {!gatcs.length && meta ? ` — ${t("noGatc")}` : ""}
-              </option>
-            </Select>
-          </Field>
-          {authority === "GATC" ? (
-            <Field id="gatc" label={t("gatc")} required>
-              <Select value={gatcId} onChange={(e) => setGatcId(e.target.value)}>
-                <option value="">{t("select")}</option>
-                {gatcs.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.name} · {g.approvalNumber}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          ) : null}
-          <Field id="officer" label={t("officer")} required hint={!meta ? t("loadingOfficers") : undefined}>
+          <Field
+            id="officer"
+            label={t("officer")}
+            required
+            hint={!officers ? t("loadingOfficers") : !primary.length && !other.length ? t(mode === "GATC" ? "noGatcOfficers" : "noOfficers") : t("officerHint")}
+          >
             <Select
               value={officerId}
               onChange={(e) => {
                 setOfficerId(e.target.value);
                 setConflicts([]);
               }}
-              disabled={!meta}
+              disabled={!officers}
             >
               <option value="">{t("select")}</option>
-              {sameState.length ? (
-                <optgroup label={t("inJurisdiction")}>
-                  {sameState.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.name} · {tr(o.role)}
-                    </option>
-                  ))}
-                </optgroup>
-              ) : null}
-              {otherState.length ? (
-                <optgroup label={t("outsideJurisdiction")}>
-                  {otherState.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.name} · {tr(o.role)}
-                    </option>
-                  ))}
-                </optgroup>
-              ) : null}
+              <OfficerOptions primary={primary} other={other} primaryLabel={t(mode === "GATC" ? "centreOfficers" : "coversDistrict")} otherLabel={t("otherOfficers")} />
             </Select>
           </Field>
           <div className="grid grid-cols-2 gap-3">

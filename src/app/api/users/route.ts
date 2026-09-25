@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { Prisma, type Role } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/db/client";
 import { jsonError, readJson, requireApiUser, validationError } from "@/server/api";
 import { writeAudit } from "@/server/audit";
+import { placementError } from "@/server/user-placement";
+import { creatableRoles, needsDistricts, needsGatc } from "@/lib/user-hierarchy";
 import { passwordSchema } from "@/lib/validation";
 
 const STAFF_ROLES = ["STATE_ADMIN", "LMO", "INSPECTOR", "GATC_ADMIN", "GATC_OFFICER", "AUDITOR"] as const;
@@ -20,20 +22,28 @@ const schema = z.object({
     .or(z.literal("")),
   role: z.enum(STAFF_ROLES),
   stateId: z.string().uuid(),
+  districtIds: z.array(z.string().uuid()).max(100).optional(),
+  gatcId: z.string().uuid().optional().or(z.literal("")),
   password: passwordSchema,
 });
 
-/** Staff account provisioning. State admins may only create non-admin staff within their own state. */
+/**
+ * Staff account provisioning along the hierarchy in `CREATABLE_ROLES`. State and GATC admins can only
+ * create accounts in their own state.
+ */
 export async function POST(req: NextRequest) {
-  const { user, response } = await requireApiUser(["SUPER_ADMIN", "STATE_ADMIN"]);
+  const { user, response } = await requireApiUser(["SUPER_ADMIN", "STATE_ADMIN", "GATC_ADMIN"]);
   if (response) return response;
   const body = schema.safeParse(await readJson(req));
   if (!body.success) return validationError(body.error);
+  const { role, stateId } = body.data;
 
-  if (user.role === "STATE_ADMIN") {
-    if (body.data.stateId !== user.stateId) return jsonError(403, "OUTSIDE_JURISDICTION");
-    if ((["STATE_ADMIN"] as Role[]).includes(body.data.role)) return jsonError(403, "ROLE_NOT_ALLOWED");
-  }
+  if (!creatableRoles(user.role).includes(role)) return jsonError(403, "ROLE_NOT_ALLOWED");
+  if (user.role !== "SUPER_ADMIN" && stateId !== user.stateId) return jsonError(403, "OUTSIDE_JURISDICTION");
+  const districtIds = needsDistricts(role) ? body.data.districtIds ?? [] : [];
+  const gatcId = needsGatc(role) ? body.data.gatcId || null : null;
+  const invalid = await placementError({ role, stateId, districtIds, gatcId });
+  if (invalid) return jsonError(400, invalid);
 
   try {
     const created = await prisma.user.create({
@@ -41,14 +51,22 @@ export async function POST(req: NextRequest) {
         name: body.data.name,
         email: body.data.email,
         mobile: body.data.mobile || null,
-        role: body.data.role,
-        stateId: body.data.stateId,
+        role,
+        stateId,
+        gatcId,
+        jurisdiction: districtIds.length ? { connect: districtIds.map((id) => ({ id })) } : undefined,
         passwordHash: await bcrypt.hash(body.data.password, 12),
         isDemo: false,
       },
       select: { id: true, email: true, role: true },
     });
-    await writeAudit({ actorId: user.id, action: "USER_CREATED", entity: "User", entityId: created.id, after: { role: created.role } });
+    await writeAudit({
+      actorId: user.id,
+      action: "USER_CREATED",
+      entity: "User",
+      entityId: created.id,
+      after: { role: created.role, stateId, districtIds, gatcId },
+    });
     return NextResponse.json({ data: created }, { status: 201 });
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return jsonError(409, "EMAIL_IN_USE");

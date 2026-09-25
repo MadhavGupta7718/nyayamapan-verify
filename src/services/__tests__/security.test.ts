@@ -51,8 +51,12 @@ describe("data scoping (IDOR prevention)", () => {
     expect(applicationScope(u("STATE_ADMIN"))).not.toEqual({});
   });
 
-  it("limits field officers to their own assignments", () => {
-    expect(applicationScope(u("LMO", { id: "officer-1" }))).toEqual({ assignments: { some: { officerId: "officer-1" } } });
+  it("limits field officers to their own current assignments", () => {
+    expect(applicationScope(u("LMO", { id: "officer-1" }))).toEqual({ assignments: { some: { officerId: "officer-1", status: { notIn: ["CANCELLED", "REASSIGNED"] } } } });
+  });
+
+  it("keeps verification away from every administrator", () => {
+    for (const role of ["SUPER_ADMIN", "STATE_ADMIN", "GATC_ADMIN", "AUDITOR"] as const) expect(canAccessModule(role, "verification")).toBe(false);
   });
 
   it("scopes certificates through the application scope", () => {

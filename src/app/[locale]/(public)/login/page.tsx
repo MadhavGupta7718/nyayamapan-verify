@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getTranslations, setRequestLocale } from "next-intl/server";
-import { ShieldCheck } from "lucide-react";
+import { ArrowLeft, ShieldCheck } from "lucide-react";
 import { Link } from "@/i18n/routing";
 import { getSessionUser } from "@/server/session";
 import { platformConfig, quickAccessPassword } from "@/server/config";
@@ -53,6 +53,9 @@ export default async function LoginPage({ params, searchParams }: { params: Prom
             <p className="relative text-caption text-brand-200/80">{platformConfig.issuingAuthority}</p>
           </aside>
           <div className="p-6 sm:p-8">
+            <Link href="/" className="mb-4 inline-flex items-center gap-1.5 text-body-sm font-medium text-fg-subtle hover:text-fg">
+              <ArrowLeft className="size-4" aria-hidden /> {t("backHome")}
+            </Link>
             <h1 className="text-h1 text-fg">{t("title")}</h1>
             <p className="mb-6 mt-1 text-body-sm text-fg-muted">{t("subtitle")}</p>
             <LoginForm callbackUrl={sp.callbackUrl ?? null} quick={quick} quickPassword={pw} />

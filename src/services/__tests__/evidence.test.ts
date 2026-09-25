@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_REQUIRED_PHOTOS, missingEvidence, requiredPhotoCategories } from "../../lib/evidence";
+import { DEFAULT_REQUIRED_PHOTOS, missingPhotos, requiredPhotoCategories } from "../../lib/evidence";
 
 describe("required field evidence", () => {
   it("falls back to a front photo when the instrument type lists none", () => {
@@ -12,11 +12,11 @@ describe("required field evidence", () => {
     expect(requiredPhotoCategories(["instrument_front", "seal"])).toEqual(["instrument_front", "seal"]);
   });
 
-  it("reports nothing missing when arrival and every required photo are on record", () => {
-    expect(missingEvidence(true, ["instrument_front", "seal"], ["seal", "instrument_front", "other"])).toEqual([]);
+  it("reports nothing missing when every required photo is on record", () => {
+    expect(missingPhotos(["instrument_front", "seal"], ["seal", "instrument_front", "other"])).toEqual([]);
   });
 
-  it("lists the missing arrival fix and each missing photo category", () => {
-    expect(missingEvidence(false, ["instrument_front", "seal"], ["seal"])).toEqual(["arrival", "photo:instrument_front"]);
+  it("lists each missing photo category", () => {
+    expect(missingPhotos(["instrument_front", "seal"], ["seal"])).toEqual(["instrument_front"]);
   });
 });
