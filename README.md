@@ -45,15 +45,16 @@ All seeded accounts share the password in `SEED_USER_PASSWORD`, which defaults t
 
 | Email | Role |
 |-------|------|
-| admin@nyayamapan.local | Super Admin |
-| state@nyayamapan.local | State Admin (Delhi) |
-| state.mh@nyayamapan.local | State Admin (Maharashtra) |
-| lmo@nyayamapan.local … lmo7@nyayamapan.local | Legal Metrology Officers (DL, DL, MH, KA, GJ, WB, UP) |
-| inspector@nyayamapan.local | Inspector |
-| gatc.admin@nyayamapan.local | GATC Admin |
-| gatc@nyayamapan.local | GATC Officer |
-| business@nyayamapan.local (and business2…) | Business users |
-| auditor@nyayamapan.local | Auditor |
+| super.admin@nyayamapan.in | Super Admin |
+| lmo.delhi@, lmo.maharashtra@, lmo.karnataka@, lmo.gujarat@, lmo.westbengal@, lmo.uttarpradesh@ | State Admins (LMO side) |
+| gatc.delhi@, gatc.maharashtra@, gatc.karnataka@ | GATC Admins |
+| vikram.lmo.newdelhi@, pooja.lmo.northwestdelhi@, sachin.lmo.mumbaicity@, kavya.lmo.bengaluruurban@, harish.lmo.ahmedabad@, arnab.lmo.kolkata@, neha.lmo.lucknow@ | Legal Metrology Officers (named after their first district) |
+| rohit.gatc.newdelhi@, swati.gatc.pune@, arjun.gatc.bengaluruurban@ | GATC Officers (one per centre) |
+| farhan.inspector.delhi@ | Inspector |
+| auditor@ | Auditor |
+| ramesh.business@, imran.business@, suresh.business@, bhavesh.business@, manoj.business@, priya.business@, debashis.business@, alok.business@ | Business users, 3–4 instruments and applications each |
+
+All addresses are `@nyayamapan.in`. The business data covers every workflow stage, including two approved GATC-route applications waiting for their GATC Admin (Delhi and Maharashtra) and one visit returned as "Location not found" (manoj.business@).
 
 Set `NEXT_PUBLIC_SHOW_QUICK_ACCESS="true"` to get one-click role sign-in buttons on the login page. This only works locally: it is ignored when `VERCEL_ENV=production`.
 

@@ -69,7 +69,7 @@ function historyFor(status: ApplicationStatus): ApplicationStatus[] {
 }
 
 const REASONS: Partial<Record<ApplicationStatus, string>> = {
-  RETURNED: "Previous certificate copy is illegible; please upload a clearer scan.",
+  RETURNED: "Purchase invoice copy is illegible; please upload a clearer scan.",
   REJECTED: "Instrument model does not hold a valid approval of model.",
   FAIL: "Observed error exceeded the configured tolerance during the test.",
   CANCELLED: "Withdrawn by applicant — instrument decommissioned.",
@@ -141,7 +141,7 @@ async function main() {
     { code: "UP", name: "Uttar Pradesh", nameHi: "उत्तर प्रदेश", districts: [["Lucknow", "लखनऊ", 26.8467, 80.9462], ["Gautam Buddha Nagar", "गौतम बुद्ध नगर", 28.5355, 77.391]] },
   ] as const;
 
-  const states: Record<string, { id: string; code: string; districts: { id: string; name: string; lat: number; lng: number }[] }> = {};
+  const states: Record<string, { id: string; code: string; name: string; districts: { id: string; name: string; lat: number; lng: number }[] }> = {};
   for (const g of geo) {
     const s = await prisma.state.create({ data: { code: g.code, name: g.name, nameHi: g.nameHi } });
     const ds = [];
@@ -149,7 +149,7 @@ async function main() {
       const d = await prisma.district.create({ data: { name, nameHi, stateId: s.id } });
       ds.push({ id: d.id, name, lat, lng });
     }
-    states[g.code] = { id: s.id, code: g.code, districts: ds };
+    states[g.code] = { id: s.id, code: g.code, name: g.name, districts: ds };
   }
   const geoSync = await syncGeography(prisma);
   console.log(`Geography: ${geoSync.statesCreated} more states/UTs and ${geoSync.districtsCreated} more districts from the reference list.`);
@@ -191,7 +191,7 @@ async function main() {
   const stateOfOrg = (i: number) => orgDefs[i].state;
 
   // ---------------------------------------------------------------- people
-  const mk = (email: string, name: string, role: Role, { districtIds, ...extra }: { stateId?: string; organizationId?: string; mobile?: string; districtIds?: string[] } = {}) =>
+  const mk = (email: string, name: string, role: Role, { districtIds, ...extra }: { stateId?: string; organizationId?: string; mobile?: string; gatcId?: string; districtIds?: string[] } = {}) =>
     prisma.user.create({
       data: {
         email,
@@ -204,38 +204,48 @@ async function main() {
       },
     });
 
-  const admin = await mk("admin@nyayamapan.local", "Anjali Verma", Role.SUPER_ADMIN);
-  const stateDl = await mk("state@nyayamapan.local", "Rakesh Sharma", Role.STATE_ADMIN, { stateId: states.DL.id });
-  await mk("state.mh@nyayamapan.local", "Sunita Patil", Role.STATE_ADMIN, { stateId: states.MH.id });
+  // Accounts: super.admin@, lmo.<state>@ (State Admin), gatc.<state>@ (GATC Admin),
+  // <firstname>.<dept>.<place>@ (officers) and <firstname>.business@ (applicants).
+  const DOMAIN = "nyayamapan.in";
+  const slug = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
+  const officerEmail = (name: string, dept: string, place: string) => `${slug(name.split(" ")[0])}.${dept}.${slug(place)}@${DOMAIN}`;
+  const mobile = () => `9${Math.floor(100000000 + rand() * 899999999)}`;
+
+  const admin = await mk(`super.admin@${DOMAIN}`, "Anjali Verma", Role.SUPER_ADMIN);
+  const stateAdmins: Record<string, string> = {};
+  for (const [st, name] of [["DL", "Rakesh Sharma"], ["MH", "Sunita Patil"], ["KA", "Prakash Hegde"], ["GJ", "Nilesh Shah"], ["WB", "Sudipta Sen"], ["UP", "Anil Srivastava"]] as const) {
+    stateAdmins[st] = (await mk(`lmo.${slug(states[st].name)}@${DOMAIN}`, name, Role.STATE_ADMIN, { stateId: states[st].id, mobile: mobile() })).id;
+  }
+  const gatcAdmins: Record<string, string> = {};
+  for (const [st, name] of [["DL", "Meera Iyer"], ["MH", "Kiran Jadhav"], ["KA", "Ravi Shankar"]] as const) {
+    gatcAdmins[st] = (await mk(`gatc.${slug(states[st].name)}@${DOMAIN}`, name, Role.GATC_ADMIN, { stateId: states[st].id, mobile: mobile() })).id;
+  }
   // Each LMO covers districts of their state (by index into the seeded districts above); auto-assignment uses this.
-  const lmoDefs: [string, string, string, number[]][] = [
-    ["lmo@nyayamapan.local", "Vikram Singh", "DL", [0, 1]],
-    ["lmo2@nyayamapan.local", "Pooja Nair", "DL", [2, 0]],
-    ["lmo3@nyayamapan.local", "Sachin Kulkarni", "MH", [0, 1]],
-    ["lmo4@nyayamapan.local", "Kavya Reddy", "KA", [0, 1]],
-    ["lmo5@nyayamapan.local", "Harish Desai", "GJ", [0]],
-    ["lmo6@nyayamapan.local", "Arnab Ghosh", "WB", [0]],
-    ["lmo7@nyayamapan.local", "Neha Tripathi", "UP", [0, 1]],
+  const lmoDefs: [string, string, number[]][] = [
+    ["Vikram Singh", "DL", [0, 1]],
+    ["Pooja Nair", "DL", [2, 0]],
+    ["Sachin Kulkarni", "MH", [0, 1]],
+    ["Kavya Reddy", "KA", [0, 1]],
+    ["Harish Desai", "GJ", [0]],
+    ["Arnab Ghosh", "WB", [0]],
+    ["Neha Tripathi", "UP", [0, 1]],
   ];
   const lmos: { id: string; name: string; state: string; districtIds: string[] }[] = [];
-  for (const [email, name, st, idx] of lmoDefs) {
+  for (const [name, st, idx] of lmoDefs) {
     const districtIds = idx.map((n) => states[st].districts[n].id);
-    const u = await mk(email, name, Role.LMO, { stateId: states[st].id, mobile: `98${Math.floor(10000000 + rand() * 89999999)}`, districtIds });
+    const u = await mk(officerEmail(name, "lmo", states[st].districts[idx[0]].name), name, Role.LMO, { stateId: states[st].id, mobile: mobile(), districtIds });
     lmos.push({ id: u.id, name, state: st, districtIds });
   }
-  await mk("inspector@nyayamapan.local", "Farhan Qureshi", Role.INSPECTOR, { stateId: states.DL.id });
-  await mk("gatc.admin@nyayamapan.local", "Meera Iyer", Role.GATC_ADMIN, { stateId: states.DL.id });
-  const gatcOfficer = await mk("gatc@nyayamapan.local", "Rohit Bansal", Role.GATC_OFFICER, { stateId: states.DL.id });
-  await mk("auditor@nyayamapan.local", "Lakshmi Menon", Role.AUDITOR);
+  await mk(officerEmail("Farhan Qureshi", "inspector", states.DL.name), "Farhan Qureshi", Role.INSPECTOR, { stateId: states.DL.id, mobile: mobile() });
+  await mk(`auditor@${DOMAIN}`, "Lakshmi Menon", Role.AUDITOR);
 
   const owners: string[] = [];
   const ownerNames = ["Ramesh Gupta", "Imran Shaikh", "Suresh Gowda", "Bhavesh Patel", "Manoj Aggarwal", "Priya Joshi", "Debashis Roy", "Alok Mishra"];
   for (let i = 0; i < orgs.length; i++) {
-    const email = i === 0 ? "business@nyayamapan.local" : `business${i + 1}@nyayamapan.local`;
-    const u = await mk(email, ownerNames[i], Role.BUSINESS_USER, {
+    const u = await mk(`${slug(ownerNames[i].split(" ")[0])}.business@${DOMAIN}`, ownerNames[i], Role.BUSINESS_USER, {
       organizationId: orgs[i].id,
       stateId: states[stateOfOrg(i)].id,
-      mobile: `9${Math.floor(100000000 + rand() * 899999999)}`,
+      mobile: mobile(),
     });
     owners.push(u.id);
   }
@@ -405,9 +415,12 @@ async function main() {
       })
     );
   }
-  await prisma.user.update({ where: { id: gatcOfficer.id }, data: { gatcId: gatcs[0].id } });
-  const GATC_TYPES = ["WEIGHTS", "COUNTER_MACHINE", "FUEL_DISPENSER", "CAPACITY_MEASURES"];
-  let gatcQueueSeeded = false;
+  const gatcOfficers: { id: string; name: string }[] = [];
+  for (const [name, gi] of [["Rohit Bansal", 0], ["Swati Deshmukh", 1], ["Arjun Rao", 2]] as const) {
+    const g = gatcDefs[gi];
+    const u = await mk(officerEmail(name, "gatc", states[g.state].districts[g.d].name), name, Role.GATC_OFFICER, { stateId: states[g.state].id, mobile: mobile(), gatcId: gatcs[gi].id });
+    gatcOfficers.push({ id: u.id, name });
+  }
 
   // ---------------------------------------------------------------- instruments & applications
   const makers: Record<string, [string, string][]> = {
@@ -428,25 +441,23 @@ async function main() {
     PACKER: ["NAWI", "WEIGHTS", "LENGTH_MEASURES"],
   };
 
-  // Target status per application, weighted towards a realistic mix.
-  const plan: ApplicationStatus[] = [
-    ...Array(14).fill("ACTIVE"),
-    ...Array(4).fill("EXPIRED"),
-    "REVOKED",
-    "SUSPENDED",
-    ...Array(4).fill("SUBMITTED"),
-    ...Array(3).fill("DOCUMENT_REVIEW"),
-    ...Array(4).fill("APPROVED"),
-    ...Array(3).fill("SCHEDULED"),
-    ...Array(4).fill("ASSIGNED"),
-    "FIELD_VERIFICATION",
-    "STAMPING",
-    "RETURNED",
-    "REJECTED",
-    "FAIL",
-    "CANCELLED",
-    ...Array(2).fill("DRAFT"),
+  // One instrument and application per entry, per organisation (same order as orgDefs), covering every
+  // workflow stage. "DISMISSED" is a visit returned as "Location not found". `gatc` routes the
+  // application to the organisation's state GATC; `type` pins an instrument type where the stage needs one.
+  type PlanItem = { status: ApplicationStatus | "DISMISSED"; gatc?: boolean; type?: string; soon?: boolean };
+  const orgPlans: PlanItem[][] = [
+    [{ status: "ACTIVE", type: "COUNTER_MACHINE", soon: true }, { status: "ASSIGNED" }, { status: "APPROVED", gatc: true, type: "WEIGHTS" }, { status: "RETURNED" }],
+    [{ status: "ACTIVE" }, { status: "APPROVED", gatc: true, type: "FUEL_DISPENSER" }, { status: "FIELD_VERIFICATION" }, { status: "SUBMITTED" }],
+    [{ status: "ACTIVE" }, { status: "EXPIRED", type: "WEIGHTS" }, { status: "DOCUMENT_REVIEW" }],
+    [{ status: "ACTIVE", type: "TAPE", soon: true }, { status: "SCHEDULED" }, { status: "REJECTED" }],
+    [{ status: "ACTIVE", gatc: true, type: "COUNTER_MACHINE" }, { status: "REVOKED", type: "WEIGHTS" }, { status: "ASSIGNED", gatc: true, type: "CAPACITY_MEASURES" }, { status: "DISMISSED", type: "NAWI" }],
+    [{ status: "ACTIVE", type: "WEIGHTS" }, { status: "SUSPENDED", type: "BEAM_SCALE" }, { status: "STAMPING" }, { status: "DRAFT" }],
+    [{ status: "ACTIVE" }, { status: "EXPIRED", type: "WEIGHTS" }, { status: "FAIL" }, { status: "SUBMITTED" }],
+    [{ status: "ACTIVE" }, { status: "ASSIGNED" }, { status: "DOCUMENT_REVIEW" }, { status: "CANCELLED" }],
   ];
+  const plan = orgPlans.flatMap((items, orgIdx) => items.map((p) => ({ ...p, orgIdx })));
+  const DISMISS_REASON = "No shop at the registered address; neighbours say the counter moved to the next market block.";
+  let dismissedApp: { id: string; applicationNumber: string; ownerId: string } | null = null;
 
   let instrumentSeq = 1;
   let appSeq = 1;
@@ -455,15 +466,13 @@ async function main() {
   const liveTokens: string[] = [];
 
   for (let i = 0; i < plan.length; i++) {
-    const status = plan[i];
-    const orgIdx = i % orgs.length;
+    const { orgIdx, ...item } = plan[i];
+    const dismissed = item.status === "DISMISSED";
+    const status: ApplicationStatus = item.status === "DISMISSED" ? "RETURNED" : item.status;
     const org = orgs[orgIdx];
     const st = states[stateOfOrg(orgIdx)];
     const district = st.districts.find((d) => d.id === org.districtId) ?? st.districts[0];
-    // One approved Delhi application goes the GATC route and waits in the GATC Admin's queue.
-    const gatcQueueSample = status === "APPROVED" && st.code === "DL" && !gatcQueueSeeded;
-    if (gatcQueueSample) gatcQueueSeeded = true;
-    const typeCode = gatcQueueSample ? "WEIGHTS" : pick(orgTypes[orgDefs[orgIdx].type]);
+    const typeCode = item.type ?? pick(orgTypes[orgDefs[orgIdx].type]);
     const type = types[typeCode];
     const [manufacturer, modelName] = pick(makers[typeCode]);
     const lat = district.lat + (rand() - 0.5) * 0.08;
@@ -471,7 +480,7 @@ async function main() {
 
     // Certified applications are dated so their validity window matches their final state.
     const isCertified = ["ACTIVE", "EXPIRED", "REVOKED", "SUSPENDED"].includes(status);
-    const expiringSoon = status === "ACTIVE" && i % 5 === 0;
+    const expiringSoon = status === "ACTIVE" && !!item.soon;
     const verifiedAt =
       status === "EXPIRED"
         ? daysFromNow(-(24 * 30 + 20 + Math.floor(rand() * 90)))
@@ -514,12 +523,17 @@ async function main() {
       },
     });
 
-    const history = historyFor(effectiveStatus);
+    const history: ApplicationStatus[] = dismissed ? [...historyFor("FIELD_VERIFICATION"), "RETURNED"] : historyFor(effectiveStatus);
     const createdAt = certifiedApp ? new Date(verifiedAt.getTime() - 12 * DAY) : daysFromNow(-(1 + Math.floor(rand() * 20)));
     const step = certifiedApp ? DAY : Math.max(3_600_000, (Date.now() - createdAt.getTime()) / (history.length + 1));
     const officer = lmos.find((l) => l.districtIds.includes(district.id)) ?? lmos.find((l) => l.state === st.code) ?? lmos[0];
-    const useGatc = gatcQueueSample || (st.code === "DL" && i % 4 === 0 && GATC_TYPES.includes(typeCode));
-    const fieldOfficerId = useGatc ? gatcOfficer.id : officer.id;
+    const useGatc = !!item.gatc;
+    const gi = gatcDefs.findIndex((g) => g.state === st.code);
+    if (useGatc && gi < 0) throw new Error(`No GATC seeded for ${st.code}`);
+    const fieldOfficer = useGatc ? gatcOfficers[gi] : officer;
+    const reviewerId = stateAdmins[st.code];
+    const schedulerId = useGatc ? gatcAdmins[st.code] : reviewerId;
+    const verificationType = certifiedApp || i % 3 ? "RE_VERIFICATION" : "INITIAL_VERIFICATION";
 
     const app = await prisma.application.create({
       data: {
@@ -527,20 +541,29 @@ async function main() {
         organizationId: org.id,
         instrumentId: instrument.id,
         createdById: owners[orgIdx],
-        verificationType: certifiedApp || i % 3 ? "RE_VERIFICATION" : "INITIAL_VERIFICATION",
+        verificationType,
         status: effectiveStatus,
         declarationAccepted: effectiveStatus !== "DRAFT",
         preferredDate: daysFromNow(3 + (i % 10)),
         preferredSlot: pick(["09:00-11:00", "11:00-13:00", "14:00-16:00"]),
-        preferredGatcId: useGatc ? gatcs[0].id : null,
+        preferredGatcId: useGatc ? gatcs[gi].id : null,
         ruleVersionId: type.listed ? validityVersion[typeCode] : null,
         createdAt,
         statusHistory: {
           create: history.map((s, idx) => ({
             previousStatus: idx === 0 ? null : history[idx - 1],
             newStatus: s,
-            changedById: idx <= 1 ? owners[orgIdx] : ["SCHEDULED", "ASSIGNED", "DOCUMENT_REVIEW", "APPROVED", "RETURNED", "REJECTED"].includes(s) ? stateDl.id : officer.id,
-            reason: REASONS[s],
+            changedById:
+              idx <= 1
+                ? owners[orgIdx]
+                : dismissed && s === "RETURNED"
+                  ? fieldOfficer.id
+                  : ["SCHEDULED", "ASSIGNED"].includes(s)
+                    ? schedulerId
+                    : ["DOCUMENT_REVIEW", "APPROVED", "RETURNED", "REJECTED"].includes(s)
+                      ? reviewerId
+                      : fieldOfficer.id,
+            reason: dismissed && s === "RETURNED" ? `Location not found: ${DISMISS_REASON}` : REASONS[s],
             changedAt: new Date(createdAt.getTime() + idx * step),
           })),
         },
@@ -548,7 +571,7 @@ async function main() {
           effectiveStatus === "DRAFT"
             ? undefined
             : {
-                create: ["previous_certificate", "model_approval", "purchase_invoice"].map((docType) => ({
+                create: (verificationType === "RE_VERIFICATION" ? ["previous_certificate", "model_approval", "purchase_invoice"] : ["model_approval", "purchase_invoice"]).map((docType) => ({
                   documentType: docType,
                   fileName: `${docType}.pdf`,
                   mimeType: "application/pdf",
@@ -574,10 +597,10 @@ async function main() {
     const assignment = await prisma.verificationAssignment.create({
       data: {
         applicationId: app.id,
-        officerId: fieldOfficerId,
-        gatcId: useGatc ? gatcs[0].id : null,
+        officerId: fieldOfficer.id,
+        gatcId: useGatc ? gatcs[gi].id : null,
         authorityType: useGatc ? "GATC" : "LMO",
-        status: reached("INSPECTION_COMPLETED") ? "COMPLETED" : "ASSIGNED",
+        status: dismissed ? "CANCELLED" : reached("INSPECTION_COMPLETED") ? "COMPLETED" : "ASSIGNED",
         assignedAt: new Date(createdAt.getTime() + 4 * step),
       },
     });
@@ -587,17 +610,35 @@ async function main() {
         assignmentId: assignment.id,
         scheduledDate,
         timeSlot: pick(["09:00-11:00", "11:00-13:00", "14:00-16:00"]),
-        status: reached("INSPECTION_COMPLETED") ? "COMPLETED" : "SCHEDULED",
+        status: dismissed ? "CANCELLED" : reached("INSPECTION_COMPLETED") ? "COMPLETED" : "SCHEDULED",
       },
     });
 
     if (!reached("FIELD_VERIFICATION")) continue;
+    if (dismissed) {
+      const at = new Date(createdAt.getTime() + (history.length - 1) * step);
+      await prisma.inspection.create({
+        data: {
+          applicationId: app.id,
+          officerId: fieldOfficer.id,
+          startedAt: at,
+          dismissedAt: at,
+          dismissReason: DISMISS_REASON,
+          gpsRecords: { create: { latitude: lat + 0.004, longitude: lng - 0.003, accuracy: 12, purpose: "DISMISSAL", userId: fieldOfficer.id, capturedAt: at } },
+        },
+      });
+      await prisma.auditLog.create({
+        data: { actorId: fieldOfficer.id, action: "VERIFICATION_DISMISSED", entity: "Application", entityId: app.id, reason: DISMISS_REASON, createdAt: at },
+      });
+      dismissedApp = { id: app.id, applicationNumber: app.applicationNumber, ownerId: owners[orgIdx] };
+      continue;
+    }
     const completed = reached("INSPECTION_COMPLETED");
     const failed = effectiveStatus === "FAIL";
     const inspection = await prisma.inspection.create({
       data: {
         applicationId: app.id,
-        officerId: fieldOfficerId,
+        officerId: fieldOfficer.id,
         startedAt: scheduledDate,
         completedAt: completed ? new Date(scheduledDate.getTime() + 2 * 3_600_000) : null,
         overallResult: !completed ? "PENDING" : failed ? "FAIL" : "PASS",
@@ -626,7 +667,7 @@ async function main() {
               ],
             }
           : undefined,
-        gpsRecords: { create: { latitude: lat, longitude: lng, accuracy: 8 + rand() * 20, purpose: "ARRIVAL", userId: fieldOfficerId, capturedAt: scheduledDate } },
+        gpsRecords: { create: { latitude: lat, longitude: lng, accuracy: 8 + rand() * 20, purpose: "ARRIVAL", userId: fieldOfficer.id, capturedAt: scheduledDate } },
       },
     });
 
@@ -637,8 +678,8 @@ async function main() {
         stampIdentifier: `STP-${st.code}-${Math.floor(10000 + rand() * 89999)}`,
         stampType: "Lead / wire seal",
         stampDate: new Date(scheduledDate.getTime() + 3 * 3_600_000),
-        authority: useGatc ? gatcDefs[0].name : `Legal Metrology, ${st.code}`,
-        officerId: fieldOfficerId,
+        authority: useGatc ? gatcDefs[gi].name : `Legal Metrology, ${st.code}`,
+        officerId: fieldOfficer.id,
       },
     });
 
@@ -673,7 +714,7 @@ async function main() {
         validUntil,
         result: "PASS",
         issuingAuthority: AUTHORITY,
-        officerName: useGatc ? "Rohit Bansal" : officer.name,
+        officerName: fieldOfficer.name,
         ruleVersionId: payload.ruleVersionId,
         validityCalcMethod: validUntil ? "add_months:24" : "CONFIGURATION_REQUIRED",
         contentHash: hash,
@@ -700,7 +741,7 @@ async function main() {
     await prisma.instrument.update({ where: { id: instrument.id }, data: { certificateNumber } });
     if (certStatus === "REVOKED" || certStatus === "SUSPENDED") {
       await prisma.certificateRevocation.create({
-        data: { certificateId: cert.id, reason: `[${certStatus === "REVOKED" ? "REVOKE" : "SUSPEND"}] ${REASONS[certStatus]}`, revokedById: stateDl.id, revokedAt: daysFromNow(-5) },
+        data: { certificateId: cert.id, reason: `[${certStatus === "REVOKED" ? "REVOKE" : "SUSPEND"}] ${REASONS[certStatus]}`, revokedById: reviewerId, revokedAt: daysFromNow(-5) },
       });
     }
     // A handful of public scans to populate verification analytics.
@@ -728,11 +769,21 @@ async function main() {
   await prisma.notification.createMany({
     data: [
       { userId: lmo.id, type: "ASSIGNMENT", title: "New verification assigned", body: "You have new field verifications scheduled this week.", createdAt: daysFromNow(-1) },
-      { userId: stateDl.id, type: "QUEUE", title: "Applications awaiting review", body: "New applications are waiting for document review.", createdAt: daysFromNow(-0.2) },
+      ...Object.values(stateAdmins).map((userId) => ({ userId, type: "QUEUE", title: "Applications awaiting review", body: "New applications are waiting for document review.", createdAt: daysFromNow(-0.2) })),
+      ...Object.values(gatcAdmins).map((userId) => ({ userId, type: "QUEUE", title: "GATC applications awaiting assignment", body: "Approved applications that chose your centre are waiting for an officer.", createdAt: daysFromNow(-0.3) })),
       { userId: admin.id, type: "RULES", title: "Rule pending review", body: "Rule 27A special provision is awaiting review.", createdAt: daysFromNow(-2) },
       { userId: owners[0], type: "APPLICATION_STATUS", title: "Application scheduled", body: "Your verification visit has been scheduled.", createdAt: daysFromNow(-0.5) },
     ],
   });
+  if (dismissedApp) {
+    const meta = { applicationId: dismissedApp.id, applicationNumber: dismissedApp.applicationNumber };
+    await prisma.notification.createMany({
+      data: [
+        { userId: stateAdmins.DL, type: "VERIFICATION_DISMISSED", title: `Visit dismissed: ${dismissedApp.applicationNumber}`, body: `Location not found: ${DISMISS_REASON}`, meta, createdAt: daysFromNow(-0.1) },
+        { userId: dismissedApp.ownerId, type: "APPLICATION_STATUS", title: `Application ${dismissedApp.applicationNumber} returned`, body: `Location not found: ${DISMISS_REASON} Please correct the instrument location and resubmit.`, meta, createdAt: daysFromNow(-0.1) },
+      ],
+    });
+  }
   await prisma.notificationTemplate.createMany({
     data: [
       {
@@ -758,7 +809,8 @@ async function main() {
 
   console.log(`Created ${plan.length} applications and ${certCount} sealed certificates.`);
   console.log(`Sign-in accounts use the password ${PASSWORD}:`);
-  console.log("  admin@ / state@ / lmo@ / inspector@ / gatc@ / gatc.admin@ / auditor@ / business@ nyayamapan.local");
+  const accounts = await prisma.user.findMany({ select: { email: true, role: true }, orderBy: [{ role: "asc" }, { email: "asc" }] });
+  for (const a of accounts) console.log(`  ${a.role.padEnd(14)} ${a.email}`);
   if (liveTokens[0]) console.log(`Public verification link: /c/${liveTokens[0]}`);
 }
 

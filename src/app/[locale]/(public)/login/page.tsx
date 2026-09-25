@@ -13,14 +13,14 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 const QUICK: [string, string][] = [
-  ["admin@nyayamapan.local", "SUPER_ADMIN"],
-  ["state@nyayamapan.local", "STATE_ADMIN"],
-  ["lmo@nyayamapan.local", "LMO"],
-  ["inspector@nyayamapan.local", "INSPECTOR"],
-  ["gatc.admin@nyayamapan.local", "GATC_ADMIN"],
-  ["gatc@nyayamapan.local", "GATC_OFFICER"],
-  ["business@nyayamapan.local", "BUSINESS_USER"],
-  ["auditor@nyayamapan.local", "AUDITOR"],
+  ["super.admin@nyayamapan.in", "SUPER_ADMIN"],
+  ["lmo.delhi@nyayamapan.in", "STATE_ADMIN"],
+  ["vikram.lmo.newdelhi@nyayamapan.in", "LMO"],
+  ["farhan.inspector.delhi@nyayamapan.in", "INSPECTOR"],
+  ["gatc.delhi@nyayamapan.in", "GATC_ADMIN"],
+  ["rohit.gatc.newdelhi@nyayamapan.in", "GATC_OFFICER"],
+  ["ramesh.business@nyayamapan.in", "BUSINESS_USER"],
+  ["auditor@nyayamapan.in", "AUDITOR"],
 ];
 
 export default async function LoginPage({ params, searchParams }: { params: Promise<{ locale: string }>; searchParams: Promise<{ callbackUrl?: string }> }) {

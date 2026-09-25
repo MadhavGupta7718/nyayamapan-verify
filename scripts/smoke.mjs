@@ -9,14 +9,14 @@ const PASSWORD = process.env.SEED_USER_PASSWORD || "Verify@2026";
 const LOCALES = ["en", "hi"];
 
 const ROLES = {
-  SUPER_ADMIN: "admin@nyayamapan.local",
-  STATE_ADMIN: "state@nyayamapan.local",
-  LMO: "lmo@nyayamapan.local",
-  INSPECTOR: "inspector@nyayamapan.local",
-  GATC_ADMIN: "gatc.admin@nyayamapan.local",
-  GATC_OFFICER: "gatc@nyayamapan.local",
-  BUSINESS_USER: "business@nyayamapan.local",
-  AUDITOR: "auditor@nyayamapan.local",
+  SUPER_ADMIN: "super.admin@nyayamapan.in",
+  STATE_ADMIN: "lmo.delhi@nyayamapan.in",
+  LMO: "vikram.lmo.newdelhi@nyayamapan.in",
+  INSPECTOR: "farhan.inspector.delhi@nyayamapan.in",
+  GATC_ADMIN: "gatc.delhi@nyayamapan.in",
+  GATC_OFFICER: "rohit.gatc.newdelhi@nyayamapan.in",
+  BUSINESS_USER: "ramesh.business@nyayamapan.in",
+  AUDITOR: "auditor@nyayamapan.in",
 };
 
 const ALL = Object.keys(ROLES);
