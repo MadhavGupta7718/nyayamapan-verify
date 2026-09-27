@@ -3,7 +3,7 @@
   "name": "NyayaMapan Verify",
   "short_name": "NyayaMapan",
   "description": "Online verification, digital certification and lifecycle tracking of weighing and measuring instruments",
-  "start_url": "/en/dashboard?source=app",
+  "start_url": "/en?source=app",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
