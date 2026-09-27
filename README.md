@@ -144,6 +144,16 @@ Additional audit events include `USER_UPDATED`, `STATE_*`, `DISTRICT_*`, `OFFICE
 3. Run `npx prisma migrate deploy`, then seed reference data. `npm run db:geo` adds any missing states, union territories and districts from `prisma/data/india-geography.ts` without deleting anything, so it is safe to re-run on a live database.
 4. The cron routes are defined in `vercel.json`.
 
+## Mobile app
+
+The site is an installable web app (PWA). It has a manifest, icons (`npm run icons` regenerates them from `public/icon.svg`) and a service worker that only shows `offline.html` when there is no network. On a phone, open the site and choose **Install app** (Android Chrome) or **Share → Add to Home Screen** (iPhone Safari). It opens full-screen with the same mobile UI.
+
+Android APK / Play Store (Trusted Web Activity):
+1. Open [PWABuilder](https://www.pwabuilder.com), enter the deployed URL, and choose **Package for stores → Android**.
+2. Set the package ID to `in.nyayamapan.verify` (or set `TWA_PACKAGE_NAME` to your own), app name `NyayaMapan Verify`, launcher name `NyayaMapan`, and generate.
+3. The download contains an `.apk` to install or share, an `.aab` for the Play Console, the signing key, and `assetlinks.json`. Keep the signing key safe; every update must be signed with it.
+4. Copy the `sha256_cert_fingerprints` value from `assetlinks.json` into the Vercel environment variable `TWA_SHA256_CERT_FINGERPRINTS` and redeploy. `/.well-known/assetlinks.json` then verifies the app, and it opens without Chrome's URL bar. If you publish on Play, also add the Play App Signing fingerprint (Play Console → App integrity), comma-separated.
+
 ## Before production use
 
 - Replace the certificate signer with a DSC/HSM-backed implementation. Also connect real payment, SMS, email and malware-scanning adapters, and DigiLocker if it is in scope.

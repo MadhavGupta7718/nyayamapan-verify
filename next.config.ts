@@ -52,6 +52,7 @@ const nextConfig: NextConfig = {
         { key: "Permissions-Policy", value: "camera=(self), geolocation=(self), microphone=()" },
       ],
     },
+    { source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache, max-age=0, must-revalidate" }] },
   ],
 };
 

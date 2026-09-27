@@ -4,10 +4,13 @@
       <stop offset="0" stop-color="#4a69b1"/>
       <stop offset="1" stop-color="#243563"/>
     </linearGradient>
+    <clipPath id="r"><rect width="64" height="64" rx="14"/></clipPath>
   </defs>
-  <rect width="64" height="64" rx="14" fill="url(#g)"/>
-  <rect y="56" width="64" height="8" fill="#d9731f"/>
-  <g fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round">
+  <g clip-path="url(#r)">
+    <rect width="64" height="64" fill="url(#g)"/>
+    <rect y="56" width="64" height="8" fill="#d9731f"/>
+  </g>
+  <g id="mark" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round">
     <path d="M32 12v34"/>
     <path d="M22 46h20"/>
     <path d="M14 20h36"/>

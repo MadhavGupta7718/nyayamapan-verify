@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { IBM_Plex_Mono, IBM_Plex_Sans, IBM_Plex_Sans_Devanagari } from "next/font/google";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ServiceWorkerRegister } from "@/components/shell/sw-register";
 import { routing } from "@/i18n/routing";
 import "../globals.css";
 
@@ -43,7 +44,8 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
     description: t("subtitle"),
     manifest: "/manifest.json",
     applicationName: t("brand"),
-    icons: { icon: "/icon.svg" },
+    icons: { icon: "/icon.svg", apple: "/apple-touch-icon.png" },
+    appleWebApp: { capable: true, title: "NyayaMapan", statusBarStyle: "default" },
   };
 }
 
@@ -72,6 +74,7 @@ export default async function LocaleLayout({
           <TooltipProvider delayDuration={250} skipDelayDuration={150}>
             {children}
             <Toaster position="top-right" richColors closeButton toastOptions={{ duration: 4500 }} />
+            <ServiceWorkerRegister />
           </TooltipProvider>
         </NextIntlClientProvider>
       </body>
