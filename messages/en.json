@@ -145,6 +145,7 @@
     "RATE_LIMITED": "Too many attempts. Please wait a few minutes.",
     "VALIDATION_ERROR": "Some fields are invalid. Check the form and try again.",
     "DUPLICATE_SERIAL": "An instrument of this type with the same serial number is already registered.",
+    "LOCATION_STATE_MISMATCH": "The coordinates are not in the selected state. Correct the state or the coordinates before saving.",
     "OPEN_APPLICATION_EXISTS": "This instrument already has an open application.",
     "EMAIL_IN_USE": "An account with this email already exists.",
     "CURRENT_PASSWORD_INCORRECT": "The current password is incorrect.",
@@ -422,7 +423,15 @@
       "type": "Type",
       "visit": "Visit",
       "status": "Status",
-      "updated": "Updated"
+      "updated": "Updated",
+      "officer": "Assigned officer"
+    },
+    "officer": {
+      "label": "Officer",
+      "none": "Officer not assigned yet",
+      "lmo": "Legal Metrology Officer",
+      "gatc": "GATC",
+      "pending": "Officer not yet assigned"
     },
     "tabs": {
       "all": "All",
@@ -649,6 +658,22 @@
       "district": "District / State",
       "coordinates": "Coordinates"
     }
+  },
+  "siteCheck": {
+    "checking": "Checking the location against the selected state…",
+    "matches": "Location matches {place}.",
+    "nearBorder": "Location is {km} km outside the {place} boundary, within the {max} km border allowance.",
+    "stateMismatchTitle": "Location is outside the selected state",
+    "stateMismatchBody": "These coordinates are in {detected}, about {km} km from {chosen}. The instrument can't be saved under {chosen}.",
+    "stateOutsideBody": "These coordinates are about {km} km outside {chosen} and not inside any state. Check the latitude and longitude.",
+    "switchState": "Switch to {state}",
+    "fixCoordinates": "Check the latitude and longitude, or capture your location again at the site.",
+    "stateLocked": "The state of a registered instrument can't be changed. Capture the location again at the site, or register the instrument afresh under the correct state.",
+    "districtMismatchTitle": "District doesn't match the location",
+    "districtMismatchBody": "These coordinates appear to be in {detected} district, but {chosen} is selected. You can still save.",
+    "switchDistrict": "Switch to {district}",
+    "districtSuggestTitle": "These coordinates appear to be in {district} district",
+    "useDistrict": "Use {district}"
   },
   "instrumentForm": {
     "title": "Register an instrument",

@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardFooter } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/input";
 import { FormSection } from "@/components/ui/form-section";
+import { SiteLocationAlert, useSiteLocationCheck } from "@/components/instruments/site-location-check";
+import { blocksSave, type SiteLocationCheck } from "@/lib/site-location";
 
 type Opt = { id: string; label: string };
 type Values = {
@@ -69,6 +71,10 @@ export function InstrumentForm({
   };
   const districts = states.find((s) => s.id === v.stateId)?.districts ?? [];
   const year = new Date().getFullYear();
+  const site = useSiteLocationCheck(v);
+  const siteBlocked = blocksSave(site.check);
+  const stateLabel = (id: string | null) => states.find((s) => s.id === id)?.label;
+  const districtLabel = (id: string | null) => states.flatMap((s) => s.districts).find((d) => d.id === id)?.label;
 
   function validate() {
     const e: typeof errors = {};
@@ -110,6 +116,10 @@ export function InstrumentForm({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!validate()) return;
+    if (siteBlocked) {
+      document.getElementById("site-check")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return toast.error(te("LOCATION_STATE_MISMATCH"));
+    }
     setSaving(true);
     try {
       const res = await api<{ data: { id: string; instrumentCode: string } }>("/api/instruments", {
@@ -134,6 +144,7 @@ export function InstrumentForm({
       router.push(`/instruments/${res.data.id}`);
     } catch (err) {
       if (err instanceof ApiError && err.code === "DUPLICATE_SERIAL") setErrors({ serialNumber: te("DUPLICATE_SERIAL") });
+      if (err instanceof ApiError && err.code === "LOCATION_STATE_MISMATCH") site.setCheck((err.details as { check: SiteLocationCheck }).check);
       toast.error(errorMessage(err, te));
       setSaving(false);
     }
@@ -228,13 +239,35 @@ export function InstrumentForm({
               </Button>
               <p className="mt-1.5 text-caption text-fg-subtle">{t("locationHint")}</p>
             </div>
+            <div id="site-check" className="sm:col-span-2 empty:hidden">
+              <SiteLocationAlert
+                check={site.check}
+                checking={site.checking}
+                chosenState={stateLabel(v.stateId) ?? ""}
+                districtId={v.districtId}
+                stateLabel={stateLabel}
+                districtLabel={districtLabel}
+                onSwitchState={
+                  states.length > 1
+                    ? (stateId, districtId) => {
+                        setV((p) => ({ ...p, stateId, districtId: districtId ?? "" }));
+                        setErrors((p) => ({ ...p, stateId: undefined, districtId: undefined }));
+                      }
+                    : undefined
+                }
+                onSwitchDistrict={(districtId) => {
+                  setV((p) => ({ ...p, districtId }));
+                  setErrors((p) => ({ ...p, districtId: undefined }));
+                }}
+              />
+            </div>
           </FormSection>
         </div>
         <CardFooter>
           <Button type="button" variant="ghost" onClick={() => router.back()} disabled={saving}>
             {t("cancel")}
           </Button>
-          <Button type="submit" loading={saving}>
+          <Button type="submit" loading={saving} disabled={siteBlocked}>
             <Save /> {t("save")}
           </Button>
         </CardFooter>

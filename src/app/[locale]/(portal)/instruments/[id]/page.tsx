@@ -219,6 +219,8 @@ export default async function InstrumentDetailPage({ params, searchParams }: Par
                 canMove ? (
                   <LocationEditDrawer
                     instrumentId={inst.id}
+                    stateId={inst.stateId ?? ""}
+                    stateLabel={inst.state ? tn(inst.state) ?? inst.state.name : ""}
                     defaultOpen={sp.edit === "location"}
                     districts={districts.map((d) => ({ id: d.id, label: tn(d) ?? d.name }))}
                     initial={{

@@ -5,21 +5,27 @@ import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 import { Crosshair, MapPinned, Save } from "lucide-react";
 import { useRouter } from "@/i18n/routing";
-import { api, errorMessage } from "@/lib/api-client";
+import { api, ApiError, errorMessage } from "@/lib/api-client";
+import { blocksSave, type SiteLocationCheck } from "@/lib/site-location";
 import { Button } from "@/components/ui/button";
 import { Drawer } from "@/components/ui/drawer";
 import { Field, Input, Select } from "@/components/ui/input";
+import { SiteLocationAlert, useSiteLocationCheck } from "@/components/instruments/site-location-check";
 
 type Location = { locationLabel: string; address: string; districtId: string; latitude: string; longitude: string };
 
 /** Lets the applicant correct the instrument's site, district and coordinates while its application is still with them. */
 export function LocationEditDrawer({
   instrumentId,
+  stateId,
+  stateLabel,
   districts,
   initial,
   defaultOpen,
 }: {
   instrumentId: string;
+  stateId: string;
+  stateLabel: string;
   districts: { id: string; label: string }[];
   initial: Location;
   defaultOpen?: boolean;
@@ -37,7 +43,8 @@ export function LocationEditDrawer({
   const lat = Number(v.latitude);
   const lng = Number(v.longitude);
   const coordsOk = v.latitude.trim() !== "" && v.longitude.trim() !== "" && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && !Number.isNaN(lat) && !Number.isNaN(lng);
-  const valid = !!v.districtId && coordsOk;
+  const site = useSiteLocationCheck({ stateId: open ? stateId : "", districtId: v.districtId, latitude: v.latitude, longitude: v.longitude });
+  const valid = !!v.districtId && coordsOk && !blocksSave(site.check);
 
   function locate() {
     if (!navigator.geolocation) return toast.error(tf("gpsUnavailable"));
@@ -67,6 +74,7 @@ export function LocationEditDrawer({
       setOpen(false);
       router.refresh();
     } catch (e) {
+      if (e instanceof ApiError && e.code === "LOCATION_STATE_MISMATCH") site.setCheck((e.details as { check: SiteLocationCheck }).check);
       toast.error(errorMessage(e, te));
     } finally {
       setSaving(false);
@@ -126,6 +134,15 @@ export function LocationEditDrawer({
           </Button>
           <p className="mt-1.5 text-caption text-fg-subtle">{tf("locationHint")}</p>
         </div>
+        <SiteLocationAlert
+          check={site.check}
+          checking={site.checking}
+          chosenState={stateLabel}
+          districtId={v.districtId}
+          stateLabel={(id) => (id === stateId ? stateLabel : undefined)}
+          districtLabel={(id) => districts.find((d) => d.id === id)?.label}
+          onSwitchDistrict={(districtId) => setV((p) => ({ ...p, districtId }))}
+        />
       </div>
     </Drawer>
   );

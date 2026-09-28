@@ -6,6 +6,8 @@ import { prisma } from "@/db/client";
 import { jsonError, readJson, requireApiUser, validationError } from "@/server/api";
 import { instrumentScope } from "@/server/scope";
 import { writeAudit } from "@/server/audit";
+import { checkSiteLocation } from "@/server/location-check";
+import { blocksSave } from "@/lib/site-location";
 
 const code = customAlphabet("0123456789", 6);
 
@@ -76,6 +78,9 @@ export async function POST(req: NextRequest) {
   if (!state) return jsonError(400, "INVALID_STATE");
   const district = await prisma.district.findFirst({ where: { id: body.data.districtId, stateId: body.data.stateId, isActive: true }, select: { id: true } });
   if (!district) return jsonError(400, "INVALID_DISTRICT");
+
+  const site = await checkSiteLocation(body.data);
+  if (blocksSave(site)) return jsonError(422, "LOCATION_STATE_MISMATCH", { check: site });
 
   try {
     const instrument = await prisma.instrument.create({

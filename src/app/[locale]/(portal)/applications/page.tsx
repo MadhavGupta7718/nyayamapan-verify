@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import { getLocale, getTranslations } from "next-intl/server";
 import { FilePlus2, FileText } from "lucide-react";
-import { ApplicationStatus, type Prisma } from "@prisma/client";
+import { ApplicationStatus, type Prisma, type Role } from "@prisma/client";
 import { prisma } from "@/db/client";
 import { Link } from "@/i18n/routing";
 import { guard } from "@/server/access";
 import { applicationScope } from "@/server/scope";
+import { INACTIVE_ASSIGNMENT } from "@/server/verification-access";
 import { APPLICATION_STAGE_GROUPS } from "@/lib/status";
 import { pageMeta, parseListParams, type RawSearchParams } from "@/lib/list-params";
 import { formatDate, formatRelative } from "@/lib/utils";
@@ -39,6 +40,9 @@ const VIEWS = {
 } as const;
 type View = keyof typeof VIEWS;
 
+/** Field officers only ever see their own work, so the column would just repeat their name. */
+const OFFICER_COLUMN_ROLES: Role[] = ["SUPER_ADMIN", "STATE_ADMIN", "GATC_ADMIN", "AUDITOR", "BUSINESS_USER"];
+
 const SORTS = {
   updatedAt: (dir: Prisma.SortOrder) => ({ updatedAt: dir }),
   createdAt: (dir: Prisma.SortOrder) => ({ createdAt: dir }),
@@ -55,6 +59,7 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
   const statusFilter = params.get("status");
   const typeFilter = params.get("type");
 
+  const showOfficer = OFFICER_COLUMN_ROLES.includes(user.role);
   const scope = applicationScope(user);
   const where: Prisma.ApplicationWhereInput = {
     AND: [
@@ -69,6 +74,9 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
               { organization: { name: { contains: params.q, mode: "insensitive" } } },
               { instrument: { serialNumber: { contains: params.q, mode: "insensitive" } } },
               { instrument: { instrumentCode: { contains: params.q, mode: "insensitive" } } },
+              ...(showOfficer
+                ? [{ assignments: { some: { status: { notIn: INACTIVE_ASSIGNMENT }, officer: { name: { contains: params.q, mode: "insensitive" as const } } } } }]
+                : []),
             ],
           }
         : {},
@@ -95,6 +103,12 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
       organization: { select: { name: true } },
       instrument: { select: { serialNumber: true, instrumentCode: true, instrumentType: { select: { name: true, nameHi: true } }, state: { select: { code: true } } } },
       schedules: { where: { status: "SCHEDULED" }, orderBy: { scheduledDate: "asc" }, take: 1, select: { scheduledDate: true } },
+      assignments: {
+        where: { status: { notIn: INACTIVE_ASSIGNMENT } },
+        orderBy: { assignedAt: "desc" },
+        take: 1,
+        select: { authorityType: true, officer: { select: { name: true } }, gatc: { select: { name: true } } },
+      },
     },
   });
   type Row = (typeof rows)[number];
@@ -107,6 +121,26 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
       : ["all", "needsReview", "readyToSchedule", "inField", "certification", "completed", "actionRequired", "closed"];
   const isBusiness = user.role === "BUSINESS_USER";
   const typeName = (r: Row) => (locale === "hi" && r.instrument.instrumentType.nameHi ? r.instrument.instrumentType.nameHi : r.instrument.instrumentType.name);
+  const officerOf = (r: Row) => {
+    const a = r.assignments[0];
+    if (!a) return null;
+    if (a.officer) return { name: a.officer.name, sub: a.authorityType === "GATC" ? a.gatc?.name ?? t("officer.gatc") : t("officer.lmo") };
+    return { name: a.gatc?.name ?? t("officer.gatc"), sub: t("officer.pending") };
+  };
+  const officerCell = (r: Row, compact = false) => {
+    const o = officerOf(r);
+    if (!o) return <span className="text-fg-faint">{compact ? t("officer.none") : "—"}</span>;
+    return compact ? (
+      <span className="block truncate text-caption text-fg-muted">
+        {t("officer.label")}: {o.name}
+      </span>
+    ) : (
+      <span className="block max-w-[14rem]">
+        <span className="block truncate text-fg">{o.name}</span>
+        <span className="block truncate text-caption text-fg-subtle">{o.sub}</span>
+      </span>
+    );
+  };
 
   const columns: Column<Row>[] = [
     {
@@ -131,9 +165,11 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
         <span className="block max-w-[18rem]">
           <span className="block truncate text-fg">{typeName(r)}</span>
           <span className="block truncate font-mono text-caption text-fg-subtle">{r.instrument.serialNumber}</span>
+          {showOfficer ? <span className="block text-caption md:hidden">{officerCell(r, true)}</span> : null}
         </span>
       ),
     },
+    ...(showOfficer ? [{ key: "officer", header: t("col.officer"), minBreakpoint: "md" as const, cell: (r: Row) => officerCell(r) }] : []),
     { key: "type", header: t("col.type"), minBreakpoint: "lg", cell: (r) => <span className="text-fg-muted">{t(`types.${r.verificationType}`)}</span> },
     {
       key: "visit",

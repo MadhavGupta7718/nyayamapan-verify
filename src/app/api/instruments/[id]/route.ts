@@ -5,6 +5,8 @@ import { jsonError, readJson, requireApiUser, validationError } from "@/server/a
 import { instrumentScope } from "@/server/scope";
 import { writeAudit } from "@/server/audit";
 import { OPEN_APPLICATION_STATUSES, canEditLocation } from "@/lib/instrument-location";
+import { checkSiteLocation } from "@/server/location-check";
+import { blocksSave } from "@/lib/site-location";
 
 const schema = z.object({
   locationLabel: z.string().trim().max(120).optional(),
@@ -43,6 +45,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   const district = await prisma.district.findFirst({ where: { id: body.data.districtId, stateId: instrument.stateId ?? "__none__", isActive: true }, select: { id: true } });
   if (!district) return jsonError(400, "INVALID_DISTRICT");
+
+  if (instrument.stateId) {
+    const site = await checkSiteLocation({ ...body.data, stateId: instrument.stateId });
+    if (blocksSave(site)) return jsonError(422, "LOCATION_STATE_MISMATCH", { check: site });
+  }
 
   const after = {
     locationLabel: body.data.locationLabel || null,
